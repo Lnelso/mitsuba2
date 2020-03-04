@@ -15,6 +15,7 @@ Makefile
 *.ninja
 
 # Miscellaneous;
+/.cmake
 /ext_build
 /build*
 /dist
