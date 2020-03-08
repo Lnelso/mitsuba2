@@ -8,6 +8,7 @@
 #include <mitsuba/core/fwd.h>
 #include <mitsuba/core/logger.h>
 #include <mitsuba/core/math.h>
+#include <mitsuba/core/object.h>
 #include <mitsuba/core/properties.h>
 #include <mitsuba/core/random.h>
 #include <mitsuba/core/ray.h>
@@ -15,8 +16,22 @@
 //#include <mitsuba/render/hair.h>
 #include <mitsuba/render/fwd.h>
 #include <mitsuba/render/kdtree.h>
+#include <mitsuba/render/sensor.h>
+
 #include <string>
 #include <fstream>
+
+
+
+/*
+#include <mitsuba/core/transform.h>
+#include <mitsuba/core/util.h>
+#include <mitsuba/core/warp.h>
+#include <mitsuba/render/bsdf.h>
+#include <mitsuba/render/emitter.h>
+#include <mitsuba/render/interaction.h>
+#include <mitsuba/render/shape.h>
+*/
 
 #define MTS_HAIR_USE_FANCY_CLIPPING 1
 
@@ -26,8 +41,10 @@ template <typename Float, typename Spectrum>
 class HairKDTree: ShapeKDTree<Float, Spectrum> {
 public:
     MTS_IMPORT_TYPES(Shape, Mesh)
-    MTS_IMPORT_BASE(ShapeKDTree, set_stop_primitives, set_exact_primitive_threshold,
-                    set_clip_primitives, set_retract_bad_splits, build, m_index_count, m_indices)
+    MTS_IMPORT_BASE(ShapeKDTree, set_stop_primitives,
+                    set_exact_primitive_threshold,
+                    set_clip_primitives, set_retract_bad_splits,
+                    build, m_index_count, m_indices, ray_intersect)
 
     using Point = typename Base::Base::Point;
     using Vector = typename Base::Base::Point;
@@ -35,11 +52,11 @@ public:
     using Index = typename Base::Base::Index;
     using Size = typename Base::Base::Size;
     using Scalar = typename Base::Base::Scalar;
-    using SurfaceAreaHeuristic3f = SurfaceAreaHeuristic3<ScalarFloat>;
+    //using SurfaceAreaHeuristic3f = SurfaceAreaHeuristic3<ScalarFloat>;
 
-    HairKDTree(std::vector<Point> &vertices,
+    HairKDTree(const Properties &props, std::vector<Point> &vertices,
                std::vector<bool> &vertex_starts_fiber, Float radius)
-            : m_radius(radius) {
+            : Base(props), m_radius(radius) {
         m_vertices.swap(vertices);
         m_vertex_starts_fiber.swap(vertex_starts_fiber);
         m_hair_count = 0;
@@ -56,11 +73,6 @@ public:
         //TODO: logging
 
         set_stop_primitives(1);
-
-        SurfaceAreaHeuristic3f::m_traversal_cost = 10;
-        SurfaceAreaHeuristic3f::m_query_cost = 15;
-        SurfaceAreaHeuristic3f::m_empty_space_bonus = 0.9f;
-
         set_exact_primitive_threshold(16384);
         set_clip_primitives(true);
         set_retract_bad_splits(true);
@@ -101,11 +113,11 @@ public:
     }
 
     MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active) const {
-        return Base::ray_intersect<true>(ray, cache, active);
+        return ray_intersect<true>(ray, cache, active);
     }
 
-    MTS_INLINE std::pair<bool, Float> ray_intersect(const Ray3f &ray, Mask active) const {
-        return Base::ray_intersect<false>(ray, NULL);
+    MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Mask active) const {
+        return ray_intersect<false>(ray, NULL);
         //TODO: either should return a surfaceInteraction or HairShape should take care of it with the tuple
     }
 
@@ -117,10 +129,10 @@ public:
         if (abs_dot(plane_nrml, cyl_d) < math::Epsilon<Scalar>) //TODO: absDot?
             return false;
 
-        Assert(std::abs(plane_nrml.length()-1) < math::Epsilon<Scalar>);
+        Assert(std::abs(norm(plane_nrml)-1) < math::Epsilon<Scalar>);
         Vector B, A = cyl_d - dot(cyl_d, plane_nrml)*plane_nrml;
 
-        Float length = A.length();
+        Float length = norm(A);
         if (length > math::Epsilon<Scalar> && plane_nrml != cyl_d) {
             A /= length;
             B = cross(plane_nrml, A);
@@ -182,17 +194,17 @@ public:
             p2[axis1] = ((i+2) & 2) ? min[axis1] : max[axis1];
             p2[axis2] = ((i+1) & 2) ? min[axis2] : max[axis2];
 
-            Point p1l(
+            Point2f p1l(
                     dot(p1 - ellipse_center, ellipse_axes[0]) / ellipse_lengths[0],
                     dot(p1 - ellipse_center, ellipse_axes[1]) / ellipse_lengths[1]);
-            Point p2l(
+            Point2f p2l(
                     dot(p2 - ellipse_center, ellipse_axes[0]) / ellipse_lengths[0],
                     dot(p2 - ellipse_center, ellipse_axes[1]) / ellipse_lengths[1]);
 
-            Vector rel = p2l-p1l;
+            Vector2f rel = p2l-p1l;
             Float A = dot(rel, rel);
-            Float B = 2*dot(Vector(p1l), rel);
-            Float C = dot(Vector(p1l), Vector(p1l))-1;
+            Float B = 2*dot(p1l, rel);
+            Float C = dot(p1l, p1l)-1;
 
             auto coefs = math::solve_quadratic(A, B, C);
             Float x0 = std::get<1>(coefs);
@@ -246,7 +258,7 @@ public:
             result.max[i] = std::max(result.max[i], center[i]+range);
         }
 
-        success = intersec_cyl_plane(second_vertex(iv), second_miter_normal(iv),
+        success = intersect_cyl_plane(second_vertex(iv), second_miter_normal(iv),
                                     second_vertex(iv), tangent(iv), m_radius * (1-math::Epsilon<Scalar>), center, axes, lengths);
         Assert(success);
 
@@ -269,33 +281,33 @@ public:
 
         BoundingBox clipped_bbox;
         clipped_bbox.expand(intersect_cyl_face(0,
-                                               Point(base.min.x, base.min.y, base.min.z),
-                                               Point(base.min.x, base.max.y, base.max.z),
+                                               Point(base.min.x(), base.min.y(), base.min.z()),
+                                               Point(base.min.x(), base.max.y(), base.max.z()),
                                                cyl_pt, cyl_d));
 
         clipped_bbox.expand(intersect_cyl_face(0,
-                                               Point(base.max.x, base.min.y, base.min.z),
-                                               Point(base.max.x, base.max.y, base.max.z),
+                                               Point(base.max.x(), base.min.y(), base.min.z()),
+                                               Point(base.max.x(), base.max.y(), base.max.z()),
                                                cyl_pt, cyl_d));
 
         clipped_bbox.expand(intersect_cyl_face(1,
-                                               Point(base.min.x, base.min.y, base.min.z),
-                                               Point(base.max.x, base.min.y, base.max.z),
+                                               Point(base.min.x(), base.min.y(), base.min.z()),
+                                               Point(base.max.x(), base.min.y(), base.max.z()),
                                                cyl_pt, cyl_d));
 
         clipped_bbox.expand(intersect_cyl_face(1,
-                                               Point(base.min.x, base.max.y, base.min.z),
-                                               Point(base.max.x, base.max.y, base.max.z),
+                                               Point(base.min.x(), base.max.y(), base.min.z()),
+                                               Point(base.max.x(), base.max.y(), base.max.z()),
                                                cyl_pt, cyl_d));
 
         clipped_bbox.expand(intersect_cyl_face(2,
-                                               Point(base.min.x, base.min.y, base.min.z),
-                                               Point(base.max.x, base.max.y, base.min.z),
+                                               Point(base.min.x(), base.min.y(), base.min.z()),
+                                               Point(base.max.x(), base.max.y(), base.min.z()),
                                                cyl_pt, cyl_d));
 
         clipped_bbox.expand(intersect_cyl_face(2,
-                                               Point(base.min.x, base.min.y, base.max.z),
-                                               Point(base.max.x, base.max.y, base.max.z),
+                                               Point(base.min.x(), base.min.y(), base.max.z()),
+                                               Point(base.max.x(), base.max.y(), base.max.z()),
                                                cyl_pt, cyl_d));
 
         clipped_bbox.clip(base);
@@ -340,38 +352,38 @@ public:
 
     MTS_INLINE std::pair<Mask, Float> intersect_prim(Index prim_index, const Ray3f &ray,
                                                  Float *cache, Mask active) const {
-        Vector axis = tangent_double(prim_index);
+        Vector axis = tangent(prim_index);
 
         Point ray_o(ray.o);
         Vector ray_d(ray.d);
-        Point v1 = first_vertex_double(prim_index);
+        Point v1 = first_vertex(prim_index);
 
         Vector rel_origin = ray_o - v1;
         Vector proj_origin = rel_origin - dot(axis, rel_origin) * axis;
         Vector proj_direction = ray_d - dot(axis, ray_d) * axis;
 
         // Quadratic to intersect circle in projection
-        const double A = proj_direction.lengthSquared(); //TODO: find equivalent for lengthSquared
-        const double B = 2 * dot(proj_origin, proj_direction);
-        const double C = proj_origin.lengthSquared() - m_radius*m_radius;
+        Float A = squared_norm(proj_direction);
+        Float B = 2 * dot(proj_origin, proj_direction);
+        Float C = squared_norm(proj_origin) - m_radius*m_radius;
 
-        double near_t, far_t;
+        Float near_t, far_t, t;
         auto coeffs = math::solve_quadratic(A, B, C);
         near_t = std::get<1>(coeffs);
         far_t = std::get<2>(coeffs);
 
         if (!std::get<0>(coeffs)) //TODO: find how to get bool from Mask
-            return false;
+            return std::pair(false, t);
 
         if (!(near_t <= ray.maxt && far_t >= ray.mint))
-            return false;
+            return std::pair(false, t);
 
         Point point_near = ray_o + ray_d * near_t;
         Point point_far = ray_o + ray_d * far_t;
 
-        Vector n1 = first_miter_normal_double(prim_index);
-        Vector n2 = second_miter_normal_double(prim_index);
-        Point v2 = second_vertex_double(prim_index);
+        Vector n1 = first_miter_normal(prim_index);
+        Vector n2 = second_miter_normal(prim_index);
+        Point v2 = second_vertex(prim_index);
         IntersectionStorage *storage = static_cast<IntersectionStorage *>(cache);
         Point p;
 
@@ -383,11 +395,11 @@ public:
         } else if (dot(point_far - v1, n1) >= 0 &&
                    dot(point_far - v2, n2) <= 0) {
             if (far_t > ray.maxt)
-                return false;
+                return std::pair(false, t);
             p = Point(ray_o + ray_d * far_t);
             t = (Float) far_t;
         } else {
-            return false;
+            return std::pair(false, t);
         }
 
         if (storage) {
@@ -395,7 +407,7 @@ public:
             storage-> p = p;
         }
 
-        return true;
+        return std::pair(true, t);
     }
 
     /* Some utility functions */
@@ -425,6 +437,7 @@ public:
             return tangent(iv);
     }
 
+    MTS_DECLARE_CLASS()
 private:
     std::vector<Point> m_vertices;
     std::vector<bool> m_vertex_starts_fiber;
@@ -434,14 +447,18 @@ private:
     Size m_hair_count;
 };
 
+MTS_IMPLEMENT_CLASS_VARIANT(HairKDTree, ShapeKDTree)
+MTS_INSTANTIATE_CLASS(HairKDTree)
 
 template <typename Float, typename Spectrum>
 class HairShape final : public Shape<Float, Spectrum> {
 public:
     MTS_IMPORT_BASE(Shape)
-    MTS_IMPORT_TYPES()
+    MTS_IMPORT_TYPES(HairKDTree)
 
     using typename Base::ScalarSize;
+    using IntersectionStorage = typename HairKDTree::IntersectionStorage;
+    using Index = typename HairKDTree::Index;
     using PCG32 = mitsuba::PCG32<UInt32>;
 
     HairShape(const Properties &props) : Base(props) {
@@ -524,7 +541,8 @@ public:
                     last_p = p;
                     tangent = ScalarVector3f(0.0f);
                 } else if (p != last_p) {
-                    if (tangent.zero_()) { //TODO: equivalent of isZero()?
+                    Mask is_zero = tangent == 0.0f;
+                    if (all(is_zero)) { //TODO: equivalent of isZero()?
                         vertices.push_back(p);
                         vertex_starts_fiber.push_back(new_fiber);
                         tangent = normalize(p - last_p);
@@ -613,7 +631,7 @@ public:
 
         vertex_starts_fiber.push_back(true);
 
-        m_kdtree = new HairKDTree<Float, Spectrum>(vertices, vertex_starts_fiber, radius); //TODO: implement HairKDTree
+        m_kdtree = new HairKDTree(vertices, vertex_starts_fiber, radius); //TODO: implement HairKDTree
 
     }
 
@@ -625,7 +643,7 @@ public:
         return m_kdtree->get_start_fiber();
     }
 
-    std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active = true) const{
+    std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active = true) const override{
         return m_kdtree->ray_intersect(ray, cache, active);
     }
 
@@ -633,13 +651,13 @@ public:
         return m_kdtree->ray_intersect(ray, active);
     }
 
-    void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const{
+    void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
         si.uv = Point2f(0.f,0.f);
         si.dp_du = ScalarVector3f(0.f);
         si.dp_dv = ScalarVector3f(0.f);
 
-        const typename HairKDTree<Float, Spectrum>::IntersectionStorage *storage = static_cast<const HairKDTree<Float, Spectrum>::IntersectionStorage *>(cache);
-        HairKDTree<Float, Spectrum>::Index iv = storage->iv;
+        const IntersectionStorage *storage = static_cast<const IntersectionStorage *>(cache);
+        Index iv = storage->iv;
         si.p = storage->p;
 
         const Vector axis = m_kdtree->tangent(iv); //TODO: should be ScalarVector3f ?
@@ -680,7 +698,7 @@ public:
         return m_kdtree->get_hair_count();
     }
 
-    std::string to_string() const{
+    std::string to_string() const override{
         std::ostringstream oss;
         oss << "Hair[" << std::endl
             << "   num_vertices = " << m_kdtree->get_vertex_count() << ","
@@ -691,10 +709,16 @@ public:
         return oss.str();
     }
 
+    MTS_DECLARE_CLASS()
+
 private:
-    ref<HairKDTree<Float, Spectrum>> m_kdtree;
+    HairKDTree *m_kdtree;
 };
 
+
+//MTS_EXTERN_CLASS_RENDER(HairKDTree)
+//MTS_IMPLEMENT_CLASS_VARIANT(HairKDTree, ShapeKDTree)
+//MTS_INSTANTIATE_CLASS(HairKDTree)
 MTS_IMPLEMENT_CLASS_VARIANT(HairShape, Shape)
-MTS_EXPORT_PLUGIN(HairShape, "Hair intersection primitive");
+MTS_EXPORT_PLUGIN(HairShape, "Hair Shape")
 NAMESPACE_END(mitsuba)
