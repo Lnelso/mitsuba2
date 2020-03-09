@@ -28,6 +28,7 @@ template <typename Float, typename Spectrum> class PhaseFunction;
 template <typename Float, typename Spectrum> class ProjectiveCamera;
 template <typename Float, typename Spectrum> class Shape;
 template <typename Float, typename Spectrum> class ShapeKDTree;
+template <typename Float, typename Spectrum> class HairKDTree;
 template <typename Float, typename Spectrum> class Texture;
 template <typename Float, typename Spectrum> class Volume;
 
@@ -70,6 +71,7 @@ template <typename Float_, typename Spectrum_> struct RenderAliases {
     using MicrofacetDistribution = mitsuba::MicrofacetDistribution<FloatU, SpectrumU>;
     using Shape                  = mitsuba::Shape<FloatU, SpectrumU>;
     using ShapeKDTree            = mitsuba::ShapeKDTree<FloatU, SpectrumU>;
+    using HairKDTree             = mitsuba::HairKDTree<FloatU, SpectrumU>; 
     using Mesh                   = mitsuba::Mesh<FloatU, SpectrumU>;
     using Integrator             = mitsuba::Integrator<FloatU, SpectrumU>;
     using SamplingIntegrator     = mitsuba::SamplingIntegrator<FloatU, SpectrumU>;
@@ -124,6 +126,7 @@ template <typename Float_, typename Spectrum_> struct RenderAliases {
     using MicrofacetDistribution = typename RenderAliases::MicrofacetDistribution;                 \
     using Shape                  = typename RenderAliases::Shape;                                  \
     using ShapeKDTree            = typename RenderAliases::ShapeKDTree;                            \
+    using HairKDTree             = typename RenderAliases::HairKDTree;                            \
     using Mesh                   = typename RenderAliases::Mesh;                                   \
     using Integrator             = typename RenderAliases::Integrator;                             \
     using SamplingIntegrator     = typename RenderAliases::SamplingIntegrator;                     \

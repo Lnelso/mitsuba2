@@ -38,7 +38,7 @@
 NAMESPACE_BEGIN(mitsuba)
 
 template <typename Float, typename Spectrum>
-class HairKDTree: ShapeKDTree<Float, Spectrum> {
+class /*MTS_EXPORT_RENDER*/ HairKDTree: ShapeKDTree<Float, Spectrum> {
 public:
     MTS_IMPORT_TYPES(Shape, Mesh)
     MTS_IMPORT_BASE(ShapeKDTree, set_stop_primitives,
@@ -113,11 +113,12 @@ public:
     }
 
     MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active) const {
-        return ray_intersect<true>(ray, cache, active);
+        return this->template ray_intersect<true>(ray, cache, active);
+        //return Base::ray_intersect<true>(ray, cache, active);
     }
 
     MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Mask active) const {
-        return ray_intersect<false>(ray, NULL);
+        return this->template ray_intersect<false>(ray, NULL, active);
         //TODO: either should return a surfaceInteraction or HairShape should take care of it with the tuple
     }
 
@@ -373,10 +374,10 @@ public:
         far_t = std::get<2>(coeffs);
 
         if (!std::get<0>(coeffs)) //TODO: find how to get bool from Mask
-            return std::pair(false, t);
+            return std::make_pair(false, t); //TODO: make_pair
 
         if (!(near_t <= ray.maxt && far_t >= ray.mint))
-            return std::pair(false, t);
+            return std::make_pair(false, t);
 
         Point point_near = ray_o + ray_d * near_t;
         Point point_far = ray_o + ray_d * far_t;
@@ -384,7 +385,7 @@ public:
         Vector n1 = first_miter_normal(prim_index);
         Vector n2 = second_miter_normal(prim_index);
         Point v2 = second_vertex(prim_index);
-        IntersectionStorage *storage = static_cast<IntersectionStorage *>(cache);
+        IntersectionStorage *storage = (IntersectionStorage *)(cache);
         Point p;
 
         if (dot(point_near - v1, n1) >= 0 &&
@@ -448,7 +449,6 @@ private:
 };
 
 MTS_IMPLEMENT_CLASS_VARIANT(HairKDTree, ShapeKDTree)
-MTS_INSTANTIATE_CLASS(HairKDTree)
 
 template <typename Float, typename Spectrum>
 class HairShape final : public Shape<Float, Spectrum> {
@@ -459,6 +459,7 @@ public:
     using typename Base::ScalarSize;
     using IntersectionStorage = typename HairKDTree::IntersectionStorage;
     using Index = typename HairKDTree::Index;
+    using ScalarIndex = typename Base::ScalarIndex;
     using PCG32 = mitsuba::PCG32<UInt32>;
 
     HairShape(const Properties &props) : Base(props) {
@@ -484,7 +485,7 @@ public:
         radius *= norm((object_to_world * ScalarVector3f(0.f, 0.f, 1.f)));
 
         Log(LogLevel::Info, "Loading hair geometry from \"%s\" ..", file_path.filename().string().c_str());
-        ref<Timer> timer = new Timer();
+        Timer* timer = new Timer();
 
         ref<FileStream> binary_stream = new FileStream(file_path, FileStream::ERead);
         binary_stream->set_byte_order(Stream::ELittleEndian);
@@ -500,34 +501,34 @@ public:
         std::vector<ScalarPoint3f> vertices;
         std::vector<bool> vertex_starts_fiber;
         ScalarVector3f tangent(0.0f);
-        size_t n_degenerate = 0, n_skipped = 0; //TODO: may need to convert to ScalarSize
+        size_t n_degenerate = 0, n_skipped = 0;
         ScalarPoint3f p, last_p(0.0f);
         bool ignore = false;
 
         if (binary_format) {
-            unsigned int vertex_count; //TODO: or size_t or ScalarSize?
-            binary_stream->read((void *)&vertex_count, sizeof(vertex_count)); //TODO: Error prone?
+            unsigned int vertex_count;
+            binary_stream->read((void *)&vertex_count, sizeof(vertex_count));
             Log(LogLevel::Info, "Loading %zd hair vertices ..", vertex_count);
             vertices.reserve(vertex_count);
             vertex_starts_fiber.reserve(vertex_count);
 
             bool new_fiber = true;
-            size_t vertices_read = 0; //TODO: scalarSize?
+            size_t vertices_read = 0;
 
             while (vertices_read != vertex_count) {
                 Float value;
                 binary_stream->read((void*)&value, sizeof(value));
                 if (std::isinf(value)) {
-                    binary_stream->read((void*)&p.x, sizeof(p.x));
-                    binary_stream->read((void*)&p.y, sizeof(p.y));
-                    binary_stream->read((void*)&p.z, sizeof(p.z));
+                    binary_stream->read((void*)&p.x(), sizeof(p.x()));
+                    binary_stream->read((void*)&p.y(), sizeof(p.y()));
+                    binary_stream->read((void*)&p.z(), sizeof(p.z()));
                     new_fiber = true;
                     if (reduction > 0)
                         ignore = rng->next_float32() < reduction; //TODO: may need a mask on the next_float32 call
                 } else {
-                    p.x = value;
-                    binary_stream->read((void*)&p.y, sizeof(p.y));
-                    binary_stream->read((void*)&p.z, sizeof(p.z));
+                    p[0] = value;
+                    binary_stream->read((void*)&p.y(), sizeof(p.y()));
+                    binary_stream->read((void*)&p.z(), sizeof(p.z()));
                 }
 
                 p = object_to_world * p;
@@ -542,7 +543,7 @@ public:
                     tangent = ScalarVector3f(0.0f);
                 } else if (p != last_p) {
                     Mask is_zero = tangent == 0.0f;
-                    if (all(is_zero)) { //TODO: equivalent of isZero()?
+                    if (all(is_zero)) {
                         vertices.push_back(p);
                         vertex_starts_fiber.push_back(new_fiber);
                         tangent = normalize(p - last_p);
@@ -579,7 +580,7 @@ public:
                     continue;
                 }
                 std::istringstream iss(line);
-                iss >> p.x >> p.y >> p.z;
+                iss >> p.x() >> p.y() >> p.z();
                 if (!iss.fail()) {
                     p = object_to_world * p;
                     if (ignore) {
@@ -591,7 +592,8 @@ public:
                         last_p = p;
                         tangent = ScalarVector3f(0.0f);
                     } else if (p != last_p) {
-                        if (tangent.zero_()) { //TODO: equivalent of isZero()?
+                        Mask is_zero = tangent == 0.0f;
+                        if (all(is_zero)) {
                             vertices.push_back(p);
                             vertex_starts_fiber.push_back(new_fiber);
                             tangent = normalize(p - last_p);
@@ -631,8 +633,8 @@ public:
 
         vertex_starts_fiber.push_back(true);
 
-        m_kdtree = new HairKDTree(vertices, vertex_starts_fiber, radius); //TODO: implement HairKDTree
-
+        mitsuba::HairKDTree<Float, Spectrum> m_kdtree(props, vertices, vertex_starts_fiber, radius);
+        //m_kdtree = new HairKDTree(props, vertices, vertex_starts_fiber, radius);
     }
 
     const std::vector<ScalarPoint3f> &get_vertices() const{
@@ -647,7 +649,7 @@ public:
         return m_kdtree->ray_intersect(ray, cache, active);
     }
 
-    SurfaceInteraction3f ray_intersect(const Ray3f &ray, Mask active = true) const{
+    std::pair<Mask, Float> /*SurfaceInteraction3f*/ ray_intersect(const Ray3f &ray, Mask active = true) const{
         return m_kdtree->ray_intersect(ray, active);
     }
 
@@ -656,18 +658,18 @@ public:
         si.dp_du = ScalarVector3f(0.f);
         si.dp_dv = ScalarVector3f(0.f);
 
-        const IntersectionStorage *storage = static_cast<const IntersectionStorage *>(cache);
+        const IntersectionStorage *storage = (const IntersectionStorage *)(cache);
         Index iv = storage->iv;
         si.p = storage->p;
 
-        const Vector axis = m_kdtree->tangent(iv); //TODO: should be ScalarVector3f ?
+        const Vector3f axis = m_kdtree->tangent(iv);
         si.shape = this;
 
-        const Vector rel_hit_point = si.p - m_kdtree->first_vertex(iv);
-        si.n = Normal(normalize(rel_hit_point - dot(axis, rel_hit_point) * axis));
+        const Vector3f rel_hit_point = si.p - m_kdtree->first_vertex(iv);
+        si.n = Normal3f(normalize(rel_hit_point - dot(axis, rel_hit_point) * axis));
 
-        const Vector local = si.to_local(rel_hit_point);
-        si.p += si.n * (m_kdtree->get_radius() - std::sqrt(local.y*local.y+local.z*local.z));
+        const Vector3f local = si.to_local(rel_hit_point);
+        si.p += si.n * (m_kdtree->get_radius() - std::sqrt(local.y()*local.y()+local.z()*local.z()));
 
         si.sh_frame.n = si.n;
         auto uv = coordinate_system(si.sh_frame.n);
@@ -681,9 +683,17 @@ public:
         return m_kdtree.get();
     }*/
 
-    /*ScalarBoundingBox3f bbox(){
-        return m_kdtree->get_aabb();
-    }*/
+    ScalarBoundingBox3f bbox() const override{
+        return ScalarBoundingBox3f();
+    }
+
+    ScalarBoundingBox3f bbox(ScalarIndex index) const override {
+        return ScalarBoundingBox3f();
+    }
+
+    ScalarBoundingBox3f bbox(ScalarIndex index, const ScalarBoundingBox3f &clip) const override{
+        return ScalarBoundingBox3f();
+    }
 
     Float get_surface_area() const{
         Log(LogLevel::Error, "HairShape::getSurfaceArea(): Not implemented.");
@@ -712,11 +722,10 @@ public:
     MTS_DECLARE_CLASS()
 
 private:
-    HairKDTree *m_kdtree;
+    ref<HairKDTree> m_kdtree;
 };
 
 
-//MTS_EXTERN_CLASS_RENDER(HairKDTree)
 //MTS_IMPLEMENT_CLASS_VARIANT(HairKDTree, ShapeKDTree)
 //MTS_INSTANTIATE_CLASS(HairKDTree)
 MTS_IMPLEMENT_CLASS_VARIANT(HairShape, Shape)
