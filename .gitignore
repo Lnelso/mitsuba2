@@ -15,6 +15,9 @@ Makefile
 *.ninja
 
 # Miscellaneous;
+mitsuba.cbp
+/.idea
+/scenes
 /.cmake
 /ext_build
 /build*

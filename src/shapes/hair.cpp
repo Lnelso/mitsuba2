@@ -44,7 +44,7 @@ public:
     MTS_IMPORT_BASE(ShapeKDTree, set_stop_primitives,
                     set_exact_primitive_threshold,
                     set_clip_primitives, set_retract_bad_splits,
-                    build, m_index_count, m_indices, ray_intersect)
+                    build, m_index_count, m_indices, m_bbox, ray_intersect)
 
     using Point = typename Base::Base::Point;
     using Vector = typename Base::Base::Point;
@@ -114,12 +114,15 @@ public:
 
     MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active) const {
         return this->template ray_intersect<true>(ray, cache, active);
-        //return Base::ray_intersect<true>(ray, cache, active);
     }
 
     MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Mask active) const {
         return this->template ray_intersect<false>(ray, NULL, active);
         //TODO: either should return a surfaceInteraction or HairShape should take care of it with the tuple
+    }
+
+    MTS_INLINE BoundingBox bbox() const {
+        return m_bbox;
     }
 
 #if MTS_HAIR_USE_FANCY_CLIPPING == 1
@@ -353,6 +356,8 @@ public:
 
     MTS_INLINE std::pair<Mask, Float> intersect_prim(Index prim_index, const Ray3f &ray,
                                                  Float *cache, Mask active) const {
+        ENOKI_MARK_USED(active);
+
         Vector axis = tangent(prim_index);
 
         Point ray_o(ray.o);
@@ -396,19 +401,19 @@ public:
         } else if (dot(point_far - v1, n1) >= 0 &&
                    dot(point_far - v2, n2) <= 0) {
             if (far_t > ray.maxt)
-                return std::pair(false, t);
+                return std::make_pair(false, t);
             p = Point(ray_o + ray_d * far_t);
             t = (Float) far_t;
         } else {
-            return std::pair(false, t);
+            return std::make_pair(false, t);
         }
 
         if (storage) {
             storage->iv = prim_index;
-            storage-> p = p;
+            storage->p = p;
         }
 
-        return std::pair(true, t);
+        return std::make_pair(true, t);
     }
 
     /* Some utility functions */
@@ -633,8 +638,7 @@ public:
 
         vertex_starts_fiber.push_back(true);
 
-        mitsuba::HairKDTree<Float, Spectrum> m_kdtree(props, vertices, vertex_starts_fiber, radius);
-        //m_kdtree = new HairKDTree(props, vertices, vertex_starts_fiber, radius);
+        m_kdtree = new HairKDTree(props, vertices, vertex_starts_fiber, radius);
     }
 
     const std::vector<ScalarPoint3f> &get_vertices() const{
@@ -649,11 +653,14 @@ public:
         return m_kdtree->ray_intersect(ray, cache, active);
     }
 
-    std::pair<Mask, Float> /*SurfaceInteraction3f*/ ray_intersect(const Ray3f &ray, Mask active = true) const{
-        return m_kdtree->ray_intersect(ray, active);
-    }
+    /*SurfaceInteraction3f ray_intersect(const Ray3f &ray, Mask active = true) const {
+        m_kdtree->ray_intersect(ray, active); //TODO
+        return SurfaceInteraction3f();
+    }*/
 
     void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
+        ENOKI_MARK_USED(active);
+
         si.uv = Point2f(0.f,0.f);
         si.dp_du = ScalarVector3f(0.f);
         si.dp_dv = ScalarVector3f(0.f);
@@ -679,32 +686,28 @@ public:
         si.time = ray.time;
     }
 
-    /*const HairShape::TShapeKDTree<ScalarBoundingBox3f> *get_kd_tree(){ //TODO: not sure about this one
-        return m_kdtree.get();
-    }*/
-
     ScalarBoundingBox3f bbox() const override{
-        return ScalarBoundingBox3f();
+        return m_kdtree->bbox();
     }
 
     ScalarBoundingBox3f bbox(ScalarIndex index) const override {
-        return ScalarBoundingBox3f();
+        return m_kdtree->bbox(index);
     }
 
     ScalarBoundingBox3f bbox(ScalarIndex index, const ScalarBoundingBox3f &clip) const override{
-        return ScalarBoundingBox3f();
+        return m_kdtree->bbox(index, clip);
     }
 
-    Float get_surface_area() const{
+    Float surface_area() const override{
         Log(LogLevel::Error, "HairShape::getSurfaceArea(): Not implemented.");
         return -1;
     }
 
-    ScalarSize get_primitive_count() const{
+    ScalarSize primitive_count() const override{
         return m_kdtree->get_hair_count();
     }
 
-    ScalarSize get_effective_primitive_count() const{
+    ScalarSize effective_primitive_count() const override{
         return m_kdtree->get_hair_count();
     }
 
