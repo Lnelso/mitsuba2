@@ -9,7 +9,7 @@ def _render_helper(scene, spp=None, sensor_index=0):
     floating point array containing RGB values and AOVs, if applicable
     """
     from mitsuba.core import (Float, UInt32, UInt64, Vector2f,
-                              is_monochromatic, is_rgb, is_polarized)
+                              is_monochromatic, is_rgb, is_polarized, DEBUG)
     from mitsuba.render import ImageBlock
 
     sensor = scene.sensors()[sensor_index]
@@ -67,7 +67,7 @@ def _render_helper(scene, spp=None, sensor_index=0):
         channel_count=len(aovs),
         filter=film.reconstruction_filter(),
         warn_negative=False,
-        warn_invalid=False,
+        warn_invalid=DEBUG,
         border=False
     )
 
@@ -103,7 +103,7 @@ def write_bitmap(filename, data, resolution, write_async=True):
         data = data.detach().cpu()
 
     data = np.array(data.numpy())
-    data = data.reshape(*resolution, -1)
+    data = data.reshape(resolution[1], resolution[0], -1)
     bitmap = Bitmap(data)
     if filename.endswith('.png') or \
        filename.endswith('.jpg') or \
@@ -209,6 +209,9 @@ class Optimizer:
         """
         self.set_learning_rate(lr)
         self.params = params
+        if not params.all_differentiable():
+            raise Exception('Optimizer.__init__(): all parameters should '
+                            'be differentiable!')
         self.state = {}
         for k, p in self.params.items():
             ek.set_requires_gradient(p)
@@ -393,6 +396,7 @@ def render_torch(scene, params=None, **kwargs):
                     spp = None
                     sensor_index = 0
                     unbiased = True
+                    malloc_trim = False
 
                     ctx.inputs = [None, None]
                     for k, v in args.items():
@@ -402,6 +406,8 @@ def render_torch(scene, params=None, **kwargs):
                             sensor_index = v
                         elif k == 'unbiased':
                             unbiased = v
+                        elif k == 'malloc_trim':
+                            malloc_trim = v
                         elif params is not None:
                             params[k] = type(params[k])(v)
                             ctx.inputs.append(None)
@@ -415,6 +421,11 @@ def render_torch(scene, params=None, **kwargs):
                         spp = (spp, spp)
 
                     result = None
+                    ctx.malloc_trim = malloc_trim
+
+                    if ctx.malloc_trim:
+                        torch.cuda.empty_cache()
+
                     if params is not None:
                         params.update()
 
@@ -432,7 +443,8 @@ def render_torch(scene, params=None, **kwargs):
                     if result is None:
                         result = ctx.output.torch()
 
-                    ek.cuda_malloc_trim()
+                    if ctx.malloc_trim:
+                        ek.cuda_malloc_trim()
                     return result
                 except Exception as e:
                     print("render_torch(): critical exception during "
@@ -449,7 +461,8 @@ def render_torch(scene, params=None, **kwargs):
                                    for i in ctx.inputs)
                     del ctx.output
                     del ctx.inputs
-                    ek.cuda_malloc_trim()
+                    if ctx.malloc_trim:
+                        ek.cuda_malloc_trim()
                     return result
                 except Exception as e:
                     print("render_torch(): critical exception during "

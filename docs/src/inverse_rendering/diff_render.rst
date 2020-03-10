@@ -19,7 +19,7 @@ Please make the following three changes to the ``cbox.xml`` file:
    .. code-block:: xml
 
        <integrator type="path">
-           <integer name="maxDepth" value="3"/>
+           <integer name="max_depth" value="3"/>
        </integrator>
 
 3. The film should specify a box reconstruction filter instead of ``gaussian``.
@@ -67,41 +67,44 @@ it to ``print()`` yields the following summary (abbreviated):
 
     ParameterMap[
         ...
-        box.reflectance.value,
-        white.reflectance.value,
-        red.reflectance.value,
-        green.reflectance.value,
-        light.reflectance.value,
+      * box.reflectance.value,
+      * white.reflectance.value,
+      * red.reflectance.value,
+      * green.reflectance.value,
+      * light.reflectance.value,
         ...
-        OBJMesh.emitter.radiance.value,
+      * OBJMesh.emitter.radiance.value,
         OBJMesh.vertex_count,
         OBJMesh.face_count,
         OBJMesh.faces,
-        OBJMesh.vertex_positions,
-        OBJMesh.vertex_normals,
-        OBJMesh.vertex_texcoords,
+      * OBJMesh.vertex_positions,
+      * OBJMesh.vertex_normals,
+      * OBJMesh.vertex_texcoords,
         OBJMesh_1.vertex_count,
         OBJMesh_1.face_count,
+
         OBJMesh_1.faces,
-        OBJMesh_1.vertex_positions,
-        OBJMesh_1.vertex_normals,
-        OBJMesh_1.vertex_texcoords,
+      * OBJMesh_1.vertex_positions,
+      * OBJMesh_1.vertex_normals,
+      * OBJMesh_1.vertex_texcoords,
         ...
     ]
 
 The Cornell box scene consists of a single light source, and multiple multiple
 meshes and BRDFs. Each component contributes certain entries to the above
 list---for instance, meshes specify their face and vertex counts in addition to
-per-face (``.faces``) and per-vertex data (``.vertex_positions``, ``.vertex_normals``,
-``.vertex_texcoords``). Each BRDF adds a ``.reflectance.value`` entry. Not all
-of these parameters are differentiable---some, e.g., store integer values.
+per-face (``.faces``) and per-vertex data (``.vertex_positions``,
+``.vertex_normals``, ``.vertex_texcoords``). Each BRDF adds a
+``.reflectance.value`` entry. Not all of these parameters are
+differentiable---some, e.g., store integer values. The asterisk (``*``) on the
+left of some parameters indicates that they are differentiable.
 
-The names are generated using a simple naming scheme based on the position in
-the scene graph and class name of the underlying implementation. Whenever an
-object was assigned a unique identifier via the ``id="..."`` attribute in the
-XML scene description, this identifier has precedence. For instance, The
-``red.reflectance.value`` entry corresponds to the albedo of the following
-declaration in the original scene description:
+The parameter names are generated using a simple naming scheme based on the
+position in the scene graph and class name of the underlying implementation.
+Whenever an object was assigned a unique identifier via the ``id="..."``
+attribute in the XML scene description, this identifier has precedence. For
+instance, The ``red.reflectance.value`` entry corresponds to the albedo of the
+following declaration in the original scene description:
 
 .. code-block:: xml
 
@@ -133,7 +136,7 @@ method to discard all entries except for the specified list of keys.
 
     # Prints:
     # ParameterMap[
-    #     red.reflectance.value
+    #   * red.reflectance.value
     # ]
 
 Let's also make a backup copy of this color value for later use.
@@ -148,9 +151,9 @@ Problem statement
 -----------------
 
 In contrast to the :ref:`previous example <sec-rendering-scene>` on using the
-Python API to render images, the differentiable rendering path involves a
-specialized function :py:func:`~mitsuba.python.autodiff.render()` that does not
-involve the scene's film and directly return GPU arrays containing the
+Python API to render images, the differentiable rendering path involves another
+rendering function :py:func:`mitsuba.python.autodiff.render()` that is more
+optimized for this use case. It directly returns a GPU array containing the
 generated image. The function
 :py:func:`~mitsuba.python.autodiff.write_bitmap()` reshapes the output into an
 image of the correct size and exports it to any of the supported image formats
@@ -296,8 +299,8 @@ left wall.
     </center>
 
 Note the oscillatory behavior, which is also visible in the convergence plot
-shown below. This generally indicates that the learning rate is set too
-aggressively.
+shown below. This indicates that the learning rate is potentially set to an
+overly large value.
 
 .. image:: ../../../resources/data/docs/images/autodiff/convergence.png
     :width: 50%
@@ -305,7 +308,7 @@ aggressively.
 
 .. note::
 
-    **Regarding efficiency**: this optimization should finish very quickly. On
+    **Regarding performance**: this optimization should finish very quickly. On
     an NVIDIA Titan RTX, it takes roughly 50 ms per iteration when the
     ``write_bitmap`` routine is commented out, and 27 ms per iteration when
     furthermore setting ``unbiased=False``.
@@ -357,14 +360,18 @@ the graph.
     # Assign the gradient [1, 1, 1] to the 'red.reflectance.value' input
     ek.set_gradient(param_0, [1, 1, 1], backward=False)
 
-    # Forward-propagate previously assigned gradients
     from mitsuba.core import Float
+
+    # Forward-propagate previously assigned gradients. The set_gradient call
+    # above already indicated which derivatives to propagate, hence we use the
+    # static FloatD.forward() function. See the Enoki documentation for further
+    # explanations of the various ways in which derivatives can be propagated.
     Float.forward()
 
 See Enoki's documentation regarding `automatic differentiation
 <https://enoki.readthedocs.io/en/master/autodiff.html>`_ for further details on
-these steps.
-Finally, we can write the resulting gradient visualization to disk.
+these steps. Finally, we can write the resulting gradient visualization to
+disk.
 
 .. code-block:: python
 
@@ -382,7 +389,8 @@ This should produce a result similar to the following image:
     :align: center
 
 Observe how changing the color of the red wall has a global effect on the
-entire image due to global illumination.
+entire image due to global illumination. Since we are differentiating with
+respect to albedo, the red color disappears.
 
 .. note::
 

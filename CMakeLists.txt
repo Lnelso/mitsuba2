@@ -236,6 +236,9 @@ endif()
 
 # Compile with compiler warnings turned on
 if (MSVC)
+  if (${MSVC_VERSION} LESS 1924)
+    message(FATAL_ERROR "MSVC 1924 or higher is required. You are running version ${MSVC_VERSION}.")
+  endif()
   if(CMAKE_CXX_FLAGS MATCHES "/W[0-4]")
     string(REGEX REPLACE "/W[0-4]" "/W4" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
   else()
@@ -338,6 +341,9 @@ if (MSVC)
 
   # Use defines from math.h (M_PI, etc)
   add_compile_options(/D "_USE_MATH_DEFINES")
+
+  # Don't complain about incompatible modifier on explicit instantiations
+  add_compile_options("/wd4910")
 endif()
 
 if (U_CMAKE_BUILD_TYPE MATCHES DEBUG AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -421,6 +427,12 @@ elseif(MSVC)
       set("CMAKE_${LinkType}_LINKER_FLAGS_${Configuration}" "${FLAGS}" CACHE STRING "" FORCE)
     endforeach()
   endforeach()
+
+  foreach(LinkType EXE SHARED)
+    string(REGEX REPLACE "\/INCREMENTAL(\:NO)?" "" CMAKE_${LinkType}_LINKER_FLAGS_DEBUG "${CMAKE_${LinkType}_LINKER_FLAGS_DEBUG}")
+    set("CMAKE_${LinkType}_LINKER_FLAGS_DEBUG" "${CMAKE_${LinkType}_LINKER_FLAGS_DEBUG} /INCREMENTAL:NO")
+  endforeach()
+
   message(STATUS "Mitsuba: LTO support enabled.")
 endif()
 
