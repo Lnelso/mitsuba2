@@ -38,25 +38,62 @@
 NAMESPACE_BEGIN(mitsuba)
 
 template <typename Float, typename Spectrum>
-class /*MTS_EXPORT_RENDER*/ HairKDTree: ShapeKDTree<Float, Spectrum> {
+class HairKDTree: public TShapeKDTree<BoundingBox<Point<scalar_t<Float>, 3>>, uint32_t,
+                                      SurfaceAreaHeuristic3<scalar_t<Float>>,
+                                      HairKDTree<Float, Spectrum>> {
 public:
     MTS_IMPORT_TYPES(Shape, Mesh)
-    MTS_IMPORT_BASE(ShapeKDTree, set_stop_primitives,
-                    set_exact_primitive_threshold,
-                    set_clip_primitives, set_retract_bad_splits,
-                    build, m_index_count, m_indices, m_bbox, ray_intersect, m_primitive_map)
+    using SurfaceAreaHeuristic3f = SurfaceAreaHeuristic3<ScalarFloat>;
+    using Size                   = uint32_t;
+    using Index                  = uint32_t;
 
-    using Point = typename Base::Base::Point;
-    using Vector = typename Base::Base::Point;
-    using BoundingBox = typename Base::Base::BoundingBox;
-    using Index = typename Base::Base::Index;
-    using Size = typename Base::Base::Size;
-    using Scalar = typename Base::Base::Scalar;
-    //using SurfaceAreaHeuristic3f = SurfaceAreaHeuristic3<ScalarFloat>;
+    using Base = TShapeKDTree<ScalarBoundingBox3f, uint32_t, SurfaceAreaHeuristic3f, HairKDTree>;
+    using typename Base::KDNode;
+    using Base::ready;
+    using Base::set_clip_primitives;
+    using Base::set_exact_primitive_threshold;
+    using Base::set_max_depth;
+    using Base::set_min_max_bins;
+    using Base::set_retract_bad_splits;
+    using Base::set_stop_primitives;
+    using Base::bbox;
+    using Base::m_bbox;
+    using Base::m_nodes;
+    using Base::m_indices;
+    using Base::m_index_count;
+    using Base::m_node_count;
+    using Base::build;
+
+    using Point = typename Base::Point;
+    using Vector = typename Base::Point;
+    using BoundingBox = typename Base::BoundingBox;
+    using Scalar = typename Base::Scalar;
 
     HairKDTree(const Properties &props, std::vector<Point> &vertices,
                std::vector<bool> &vertex_starts_fiber, Float radius)
-            : Base(props), m_radius(radius) {
+            : Base(SurfaceAreaHeuristic3f(
+                  props.float_("kd_intersection_cost", 20.f),
+                  props.float_("kd_traversal_cost", 15.f),
+                  props.float_("kd_empty_space_bonus", .9f))), m_radius(radius) {
+
+        if (props.has_property("kd_stop_prims"))
+            set_stop_primitives(props.int_("kd_stop_prims"));
+
+        if (props.has_property("kd_max_depth"))
+            set_max_depth(props.int_("kd_max_depth"));
+
+        if (props.has_property("kd_min_max_bins"))
+            set_min_max_bins(props.int_("kd_min_max_bins"));
+
+        if (props.has_property("kd_clip"))
+            set_clip_primitives(props.bool_("kd_clip"));
+
+        if (props.has_property("kd_retract_bad_splits"))
+            set_retract_bad_splits(props.bool_("kd_retract_bad_splits"));
+
+        if (props.has_property("kd_exact_primitive_threshold"))
+            set_exact_primitive_threshold(props.int_("kd_exact_primitive_threshold"));
+
         std::cout << "HairKDTree constructor" << std::endl;
         m_vertices.swap(vertices);
         m_vertex_starts_fiber.swap(vertex_starts_fiber);
@@ -122,7 +159,7 @@ public:
         return m_vertices.size();
     }
 
-    MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active) const {
+    /*MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active) const {
         std::cout << "HairKDTree ray_intersect 1" << std::endl;
         return this->template ray_intersect<true>(ray, cache, active);
     }
@@ -131,6 +168,240 @@ public:
         std::cout << "HairKDTree ray_intersect 2" << std::endl;
         return this->template ray_intersect<false>(ray, NULL, active);
         //TODO: either should return a surfaceInteraction or HairShape should take care of it with the tuple
+    }*/
+
+    template <bool ShadowRay>
+    MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray,
+                                                    Float *cache,
+                                                    Mask active) const {
+        ENOKI_MARK_USED(active);
+        if constexpr (!is_array_v<Float>)
+            return ray_intersect_scalar<ShadowRay>(ray, cache);
+        else
+            return ray_intersect_packet<ShadowRay>(ray, cache, active);
+    }
+
+    template <bool ShadowRay>
+    MTS_INLINE std::pair<bool, Float> ray_intersect_scalar(Ray3f ray,
+                                                           Float *cache) const {
+        /// Ray traversal stack entry
+        struct KDStackEntry {
+            // Ray distance associated with the node entry and exit point
+            Float mint, maxt;
+            // Pointer to the far child
+            const KDNode *node;
+        };
+
+        // Allocate the node stack
+        KDStackEntry stack[MTS_KD_MAXDEPTH];
+        int32_t stack_index = 0;
+
+        // True if an intersection has been found
+        bool hit = false;
+
+        // Intersect against the scene bounding box
+        auto bbox_result = m_bbox.ray_intersect(ray);
+
+        Float mint = std::max(ray.mint, std::get<1>(bbox_result));
+        Float maxt = std::min(ray.maxt, std::get<2>(bbox_result));
+
+        const KDNode *node = m_nodes.get();
+        while (mint <= maxt) {
+            if (likely(!node->leaf())) { // Inner node
+                const Float split   = node->split();
+                const uint32_t axis = node->axis();
+
+                /* Compute parametric distance along the rays to the split plane */
+                Float t_plane = (split - ray.o[axis]) * ray.d_rcp[axis];
+
+                bool left_first  = (ray.o[axis] < split) ||
+                                   (ray.o[axis] == split && ray.d[axis] >= 0.f),
+                     start_after = t_plane < mint,
+                     end_before  = t_plane > maxt || t_plane < 0.f || !std::isfinite(t_plane),
+                     single_node = start_after || end_before;
+
+                /* If we only need to visit one node, just pick the correct one and continue */
+                if (likely(single_node)) {
+                    bool visit_left = end_before == left_first;
+                    node = node->left() + (visit_left ? 0 : 1);
+                    continue;
+                }
+
+                /* Visit both child nodes in the right order */
+                Index node_offset = left_first ? 0 : 1;
+                const KDNode *left   = node->left(),
+                             *n_cur  = left + node_offset,
+                             *n_next = left + (1 - node_offset);
+
+                /* Postpone visit to 'n_next' */
+                KDStackEntry& entry = stack[stack_index++];
+                entry.mint = t_plane;
+                entry.maxt = maxt;
+                entry.node = n_next;
+
+                /* Visit 'n_cur' now */
+                node = n_cur;
+                maxt = t_plane;
+                continue;
+            } else if (node->primitive_count() > 0) { // Arrived at a leaf node
+                Index prim_start = node->primitive_offset();
+                Index prim_end = prim_start + node->primitive_count();
+                for (Index i = prim_start; i < prim_end; i++) {
+                    Index prim_index = m_indices[i];
+
+                    bool prim_hit;
+                    Float prim_t;
+                    std::tie(prim_hit, prim_t) =
+                        intersect_prim(prim_index, ray, cache, true);
+
+                    if (unlikely(prim_hit)) {
+                        if (ShadowRay)
+                            return { true, prim_t };
+
+                        Assert(prim_t >= ray.mint && prim_t <= ray.maxt);
+                        ray.maxt = prim_t;
+                        hit = true;
+                    }
+                }
+            }
+
+            if (likely(stack_index > 0)) {
+                --stack_index;
+                KDStackEntry& entry = stack[stack_index];
+                mint = entry.mint;
+                maxt = std::min(entry.maxt, ray.maxt);
+                node = entry.node;
+            } else {
+                break;
+            }
+        }
+        return { hit, hit ? ray.maxt : math::Infinity<Float> };
+    }
+
+    template <bool ShadowRay>
+    MTS_INLINE std::pair<Mask, Float> ray_intersect_packet(Ray3f ray,
+                                                           Float *cache,
+                                                           Mask active) const {
+        /// Ray traversal stack entry
+        struct KDStackEntry {
+            // Ray distance associated with the node entry and exit point
+            Float mint, maxt;
+            // Is the corresponding SIMD lane enabled?
+            Mask active;
+            // Pointer to the far child
+            const KDNode *node;
+        };
+
+        // Allocate the node stack
+        KDStackEntry stack[MTS_KD_MAXDEPTH];
+        int32_t stack_index = 0;
+
+        // True if an intersection has been found
+        Mask hit = false;
+
+        const KDNode *node = m_nodes.get();
+
+        /* Intersect against the scene bounding box */
+        auto bbox_result = m_bbox.ray_intersect(ray);
+        Float mint = enoki::max(ray.mint, std::get<1>(bbox_result));
+        Float maxt = enoki::min(ray.maxt, std::get<2>(bbox_result));
+
+        while (true) {
+            active = active && (maxt >= mint);
+            if (ShadowRay)
+                active = active && !hit;
+
+            if (likely(any(active))) {
+                if (likely(!node->leaf())) { // Inner node
+                    const scalar_t<Float> split = node->split();
+                    const uint32_t axis = node->axis();
+
+                    // Compute parametric distance along the rays to the split plane
+                    Float t_plane          = (split - ray.o[axis]) * ray.d_rcp[axis];
+                    Mask left_first        = (ray.o[axis] < split) ||
+                                              (eq(ray.o[axis], split) && ray.d[axis] >= 0.f),
+                         start_after       = t_plane < mint,
+                         end_before        = t_plane > maxt || t_plane < 0.f || !enoki::isfinite(t_plane),
+                         single_node       = start_after || end_before,
+                         visit_left        = eq(end_before, left_first),
+                         visit_only_left   = single_node &&  visit_left,
+                         visit_only_right  = single_node && !visit_left;
+
+                    bool all_visit_only_left  = all(visit_only_left || !active),
+                         all_visit_only_right = all(visit_only_right || !active),
+                         all_visit_same_node  = all_visit_only_left || all_visit_only_right;
+
+                    /* If we only need to visit one node, just pick the correct one and continue */
+                    if (all_visit_same_node) {
+                        node = node->left() + (all_visit_only_left ? 0 : 1);
+                        continue;
+                    }
+
+                    size_t left_votes  = count(left_first && active),
+                           right_votes = count(!left_first && active);
+
+                    bool go_left = left_votes >= right_votes;
+
+                    Mask go_left_bcast = Mask(go_left),
+                         correct_order = eq(left_first, go_left_bcast),
+                         visit_both    = !single_node,
+                         visit_cur     = visit_both || eq (visit_left, go_left_bcast),
+                         visit_next    = visit_both || neq(visit_left, go_left_bcast);
+
+                    /* Visit both child nodes in the right order */
+                    Index node_offset = go_left ? 0 : 1;
+                    const KDNode *left   = node->left(),
+                                 *n_cur  = left + node_offset,
+                                 *n_next = left + (1 - node_offset);
+
+                    /* Postpone visit to 'n_next' */
+                    Mask sel0 =  correct_order && visit_both,
+                         sel1 = !correct_order && visit_both;
+                    KDStackEntry& entry = stack[stack_index++];
+                    entry.mint = select(sel0, t_plane, mint);
+                    entry.maxt = select(sel1, t_plane, maxt);
+                    entry.active = active && visit_next;
+                    entry.node = n_next;
+
+                    /* Visit 'n_cur' now */
+                    mint = select(sel1, t_plane, mint);
+                    maxt = select(sel0, t_plane, maxt);
+                    active = active && visit_cur;
+                    node = n_cur;
+                    continue;
+                } else if (node->primitive_count() > 0) { // Arrived at a leaf node
+                    Index prim_start = node->primitive_offset();
+                    Index prim_end = prim_start + node->primitive_count();
+                    for (Index i = prim_start; i < prim_end; i++) {
+                        Index prim_index = m_indices[i];
+
+                        Mask prim_hit;
+                        Float prim_t;
+                        std::tie(prim_hit, prim_t) =
+                            intersect_prim(prim_index, ray, cache, active);
+
+                        if (!ShadowRay) {
+                            Assert(all(!prim_hit || (prim_t >= ray.mint && prim_t <= ray.maxt)));
+                            masked(ray.maxt, prim_hit) = prim_t;
+                        }
+                        hit |= prim_hit;
+                    }
+                }
+            }
+
+            if (likely(stack_index > 0)) {
+                --stack_index;
+                KDStackEntry& entry = stack[stack_index];
+                mint = entry.mint;
+                maxt = enoki::min(entry.maxt, ray.maxt);
+                active = entry.active;
+                node = entry.node;
+            } else {
+                break;
+            }
+        }
+
+        return { hit, select(hit, ray.maxt, math::Infinity<Float>) };
     }
 
     MTS_INLINE BoundingBox bbox() const {
@@ -479,7 +750,7 @@ private:
     Size m_hair_count;
 };
 
-MTS_IMPLEMENT_CLASS_VARIANT(HairKDTree, ShapeKDTree)
+MTS_IMPLEMENT_CLASS_VARIANT(HairKDTree, TShapeKDTree)
 
 template <typename Float, typename Spectrum>
 class HairShape final : public Shape<Float, Spectrum> {
@@ -687,7 +958,7 @@ public:
 
     std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active = true) const override{
         std::cout << "HairShape ray_intersect" << std::endl;
-        return m_kdtree->ray_intersect(ray, cache, active);
+        return m_kdtree->template ray_intersect<true>(ray, cache, active);
     }
 
     /*SurfaceInteraction3f ray_intersect(const Ray3f &ray, Mask active = true) const {
@@ -746,7 +1017,7 @@ public:
     }
 
     ScalarSize primitive_count() const override{
-        std::cout << "HairShape primitive count: " << m_kdtree->hair_count() << std::endl;
+        std::cout << "HairShape primitive_count" << std::endl;
         return m_kdtree->hair_count();
     }
 
