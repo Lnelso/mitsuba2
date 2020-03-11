@@ -44,7 +44,7 @@ public:
     MTS_IMPORT_BASE(ShapeKDTree, set_stop_primitives,
                     set_exact_primitive_threshold,
                     set_clip_primitives, set_retract_bad_splits,
-                    build, m_index_count, m_indices, m_bbox, ray_intersect)
+                    build, m_index_count, m_indices, m_bbox, ray_intersect, m_primitive_map)
 
     using Point = typename Base::Base::Point;
     using Vector = typename Base::Base::Point;
@@ -57,6 +57,7 @@ public:
     HairKDTree(const Properties &props, std::vector<Point> &vertices,
                std::vector<bool> &vertex_starts_fiber, Float radius)
             : Base(props), m_radius(radius) {
+        std::cout << "HairKDTree constructor" << std::endl;
         m_vertices.swap(vertices);
         m_vertex_starts_fiber.swap(vertex_starts_fiber);
         m_hair_count = 0;
@@ -67,8 +68,11 @@ public:
                 m_hair_count++;
             if (!m_vertex_starts_fiber[i+1])
                 m_seg_index.push_back((Index) i);
+                //m_primitive_map.push_back(m_seg_index.size()); Problem is related to m_primitive_map
         }
         m_segment_count = m_seg_index.size();
+
+        Log(Warn, "m_seg_index before building: %s", m_seg_index.size());
 
         //TODO: logging
 
@@ -88,40 +92,49 @@ public:
 
     }
 
-    MTS_INLINE const std::vector<Point> &get_vertices() const {
+    MTS_INLINE const std::vector<Point> &vertices() const {
+        std::cout << "HairKDTree get_vertices" << std::endl;
         return m_vertices;
     }
 
-    MTS_INLINE const std::vector<bool> &get_start_fiber() const {
+    MTS_INLINE const std::vector<bool> &start_fiber() const {
+        std::cout << "HairKDTree get_start_fiber" << std::endl;
         return m_vertex_starts_fiber;
     }
 
-    MTS_INLINE Float get_radius() const {
+    MTS_INLINE Float radius() const {
+        std::cout << "HairKDTree get_radius" << std::endl;
         return m_radius;
     }
 
-    MTS_INLINE Size get_segment_count() const {
+    MTS_INLINE Size segment_count() const {
+        std::cout << "HairKDTree segment_count" << std::endl;
         return m_segment_count;
     }
 
-    MTS_INLINE Size get_hair_count() const {
+    MTS_INLINE Size hair_count() const {
+        std::cout << "HairKDTree hair_count" << std::endl;
         return m_hair_count;
     }
 
-    MTS_INLINE Size get_vertex_count() const {
+    MTS_INLINE Size vertex_count() const {
+        std::cout << "HairKDTree get_vertex_count" << std::endl;
         return m_vertices.size();
     }
 
     MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active) const {
+        std::cout << "HairKDTree ray_intersect 1" << std::endl;
         return this->template ray_intersect<true>(ray, cache, active);
     }
 
     MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Mask active) const {
+        std::cout << "HairKDTree ray_intersect 2" << std::endl;
         return this->template ray_intersect<false>(ray, NULL, active);
         //TODO: either should return a surfaceInteraction or HairShape should take care of it with the tuple
     }
 
     MTS_INLINE BoundingBox bbox() const {
+        std::cout << "HairKDTree bbox 1" << std::endl;
         return m_bbox;
     }
 
@@ -129,6 +142,8 @@ public:
     bool intersect_cyl_plane(Point plane_pt, Normal3f plane_nrml,
             Point cyl_pt, Vector cyl_d, Float radius, Point &center,
             Vector *axes, Float *lengths) const {
+
+        std::cout << "HairKDTree intersect_cyl plane 1" << std::endl;
 
         if (abs_dot(plane_nrml, cyl_d) < math::Epsilon<Scalar>) //TODO: absDot?
             return false;
@@ -174,6 +189,9 @@ public:
     BoundingBox intersect_cyl_face(int axis,
             const Point &min, const Point &max,
             const Point &cyl_pt, const Vector &cyl_d) const {
+
+        std::cout << "HairKDTree intersect_cyl_face" << std::endl;
+
         int axis1 = (axis + 1) % 3;
         int axis2 = (axis + 2) % 3;
 
@@ -245,6 +263,8 @@ public:
     }
 
     BoundingBox bbox(Index index) const {
+        std::cout << "HairKDTree bbox 2" << std::endl;
+
         Index iv = m_seg_index[index];
         Point center;
         Vector axes[2];
@@ -276,6 +296,7 @@ public:
     }
 
     BoundingBox bbox(Index index, const BoundingBox &box) const {
+        std::cout << "HairKDTree bbox 3" << std::endl;
         BoundingBox base(bbox(index));
         base.clip(box);
 
@@ -320,6 +341,7 @@ public:
     }
 #else
     BoundingBox bbox(Index index) const {
+        std::cout << "HairKDTree bbox 2 alt" << std::endl;
         Index iv = m_seg_index[index];
 
         const Float cos0 = dot(first_miter_normal(iv), tangent(iv));
@@ -339,13 +361,15 @@ public:
     }
 
     BoundingBox bbox(Indexindex, const BoundingBox &box) const {
+        std::cout << "HairKDTree bbox 3 alt" << std::endl;
         BoundingBox cbox(bbox(index));
         cbox.clip(box);
         return cbox;
     }
 #endif
 
-    MTS_INLINE Size get_primitive_count() const {
+    MTS_INLINE Size primitive_count() const {
+        std::cout << "HairKDTree primitive_count HairKDTree" << std::endl;
         return (Size) m_seg_index.size();
     }
 
@@ -357,6 +381,8 @@ public:
     MTS_INLINE std::pair<Mask, Float> intersect_prim(Index prim_index, const Ray3f &ray,
                                                  Float *cache, Mask active) const {
         ENOKI_MARK_USED(active);
+
+        std::cout << "HairKDTree intersect_prim" << std::endl;
 
         Vector axis = tangent(prim_index);
 
@@ -468,6 +494,7 @@ public:
     using PCG32 = mitsuba::PCG32<UInt32>;
 
     HairShape(const Properties &props) : Base(props) {
+        std::cout << "HairShape constructor" << std::endl;
         FileResolver *fs = Thread::thread()->file_resolver();
         fs::path file_path = fs->resolve(props.string("filename"));
 
@@ -567,6 +594,7 @@ public:
                         last_p = p;
                     }
                 } else {
+                    std::cout << "degenerate" << std::endl;
                     n_degenerate++;
                 }
                 new_fiber = false;
@@ -579,6 +607,7 @@ public:
             if (is.fail())
                 Log(LogLevel::Error, "Could not open \"%s\"!", file_path.string().c_str());
             while (is.good()) {
+                std::cout << "is is good" << std::endl;
                 std::getline(is, line);
                 if (line.length() > 0 && line[0] == '#') {
                     new_fiber = true;
@@ -587,18 +616,22 @@ public:
                 std::istringstream iss(line);
                 iss >> p.x() >> p.y() >> p.z();
                 if (!iss.fail()) {
+                    std::cout << "iss did not fail" << std::endl;
                     p = object_to_world * p;
                     if (ignore) {
                         // Do nothing
                         ++n_skipped;
                     } else if (new_fiber) {
+                        std::cout << "new fiber" << std::endl;
                         vertices.push_back(p);
                         vertex_starts_fiber.push_back(new_fiber);
                         last_p = p;
                         tangent = ScalarVector3f(0.0f);
                     } else if (p != last_p) {
+                        std::cout << "p is different from last_p" << std::endl;
                         Mask is_zero = tangent == 0.0f;
                         if (all(is_zero)) {
+                            std::cout << "tangent is zero" << std::endl;
                             vertices.push_back(p);
                             vertex_starts_fiber.push_back(new_fiber);
                             tangent = normalize(p - last_p);
@@ -639,17 +672,21 @@ public:
         vertex_starts_fiber.push_back(true);
 
         m_kdtree = new HairKDTree(props, vertices, vertex_starts_fiber, radius);
+
+        std::cout << "End of HairShape Constructor" << std::endl;
     }
 
-    const std::vector<ScalarPoint3f> &get_vertices() const{
-        return m_kdtree->get_vertices();
+    const std::vector<ScalarPoint3f> &vertices() const{
+
+        return m_kdtree->vertices();
     }
 
-    const std::vector<bool> &get_start_fiber() const{
-        return m_kdtree->get_start_fiber();
+    const std::vector<bool> &start_fiber() const{
+        return m_kdtree->start_fiber();
     }
 
     std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active = true) const override{
+        std::cout << "HairShape ray_intersect" << std::endl;
         return m_kdtree->ray_intersect(ray, cache, active);
     }
 
@@ -660,6 +697,8 @@ public:
 
     void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
         ENOKI_MARK_USED(active);
+
+        std::cout << "HairShape fill_surface_interaction" << std::endl;
 
         si.uv = Point2f(0.f,0.f);
         si.dp_du = ScalarVector3f(0.f);
@@ -676,7 +715,7 @@ public:
         si.n = Normal3f(normalize(rel_hit_point - dot(axis, rel_hit_point) * axis));
 
         const Vector3f local = si.to_local(rel_hit_point);
-        si.p += si.n * (m_kdtree->get_radius() - std::sqrt(local.y()*local.y()+local.z()*local.z()));
+        si.p += si.n * (m_kdtree->radius() - std::sqrt(local.y()*local.y()+local.z()*local.z()));
 
         si.sh_frame.n = si.n;
         auto uv = coordinate_system(si.sh_frame.n);
@@ -687,14 +726,17 @@ public:
     }
 
     ScalarBoundingBox3f bbox() const override{
+        std::cout << "HairShape bbox 1" << std::endl;
         return m_kdtree->bbox();
     }
 
     ScalarBoundingBox3f bbox(ScalarIndex index) const override {
+        std::cout << "HairShape bbox 2" << std::endl;
         return m_kdtree->bbox(index);
     }
 
     ScalarBoundingBox3f bbox(ScalarIndex index, const ScalarBoundingBox3f &clip) const override{
+        std::cout << "HairShape bbox3" << std::endl;
         return m_kdtree->bbox(index, clip);
     }
 
@@ -704,20 +746,21 @@ public:
     }
 
     ScalarSize primitive_count() const override{
-        return m_kdtree->get_hair_count();
+        std::cout << "HairShape primitive count: " << m_kdtree->hair_count() << std::endl;
+        return m_kdtree->hair_count();
     }
 
     ScalarSize effective_primitive_count() const override{
-        return m_kdtree->get_hair_count();
+        return m_kdtree->hair_count();
     }
 
     std::string to_string() const override{
         std::ostringstream oss;
         oss << "Hair[" << std::endl
-            << "   num_vertices = " << m_kdtree->get_vertex_count() << ","
-            << "   num_segments = " << m_kdtree->get_segment_count() << ","
-            << "   num_hairs = " << m_kdtree->get_hair_count() << ","
-            << "   radius = " << m_kdtree->get_radius()
+            << "   num_vertices = " << m_kdtree->vertex_count() << ","
+            << "   num_segments = " << m_kdtree->segment_count() << ","
+            << "   num_hairs = " << m_kdtree->hair_count() << ","
+            << "   radius = " << m_kdtree->radius()
             << "]";
         return oss.str();
     }
@@ -728,9 +771,6 @@ private:
     ref<HairKDTree> m_kdtree;
 };
 
-
-//MTS_IMPLEMENT_CLASS_VARIANT(HairKDTree, ShapeKDTree)
-//MTS_INSTANTIATE_CLASS(HairKDTree)
 MTS_IMPLEMENT_CLASS_VARIANT(HairShape, Shape)
 MTS_EXPORT_PLUGIN(HairShape, "Hair Shape")
 NAMESPACE_END(mitsuba)

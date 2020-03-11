@@ -1719,6 +1719,8 @@ protected:
             Throw("The exact primitive threshold must be bigger than the "
                   "stopping primitive count");
 
+        //std::cout << derived().to_string() << std::endl;
+
         Size prim_count = derived().primitive_count();
         if (m_max_depth == 0)
             m_max_depth = (int) (8 + 1.3f * log2i(prim_count));
