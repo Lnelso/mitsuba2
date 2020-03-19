@@ -175,6 +175,7 @@ public:
                                                     Float *cache,
                                                     Mask active) const {
         ENOKI_MARK_USED(active);
+        std::cout << "HairKDTree ray_intersect" << std::endl;
         if constexpr (!is_array_v<Float>)
             return ray_intersect_scalar<ShadowRay>(ray, cache);
         else
@@ -665,6 +666,9 @@ public:
         Vector proj_origin = rel_origin - dot(axis, rel_origin) * axis;
         Vector proj_direction = ray_d - dot(axis, ray_d) * axis;
 
+        std::cout << "HairKDTree intersect_prim before quadratic \n" << std::endl;
+
+
         // Quadratic to intersect circle in projection
         Float A = squared_norm(proj_direction);
         Float B = 2 * dot(proj_origin, proj_direction);
@@ -681,6 +685,8 @@ public:
         if (!(near_t <= ray.maxt && far_t >= ray.mint))
             return std::make_pair(false, t);
 
+        std::cout << "HairKDTree intersect_prim after quadratic \n" << std::endl;
+
         Point point_near = ray_o + ray_d * near_t;
         Point point_far = ray_o + ray_d * far_t;
 
@@ -688,26 +694,30 @@ public:
         Vector n2 = second_miter_normal(prim_index);
         Point v2 = second_vertex(prim_index);
         IntersectionStorage *storage = (IntersectionStorage *)(cache);
-        Point p;
+        Point3f p;
 
+        std::cout << "HairKDTree intersect_prim before storage \n" << std::endl;
         if (dot(point_near - v1, n1) >= 0 &&
             dot(point_near - v2, n2) <= 0 &&
             near_t >= ray.mint) {
-            p = Point(ray_o + ray_d * near_t);
+            p = Point3f(ray_o + ray_d * near_t);
             t = (Float) near_t;
         } else if (dot(point_far - v1, n1) >= 0 &&
                    dot(point_far - v2, n2) <= 0) {
             if (far_t > ray.maxt)
                 return std::make_pair(false, t);
-            p = Point(ray_o + ray_d * far_t);
+            p = Point3f(ray_o + ray_d * far_t);
             t = (Float) far_t;
         } else {
             return std::make_pair(false, t);
         }
 
         if (storage) {
+            std::cout << "HairKDTree intersect_prim while storing \n" << std::endl;
+            std::cout << storage << std::endl;
             storage->iv = prim_index;
             storage->p = p;
+            Log(LogLevel::Warn, "storing succeeded");
         }
 
         return std::make_pair(true, t);
