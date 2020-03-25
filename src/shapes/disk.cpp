@@ -13,7 +13,6 @@
 
 NAMESPACE_BEGIN(mitsuba)
 
-
 /**!
 
 .. _shape-disk:
@@ -150,7 +149,7 @@ public:
         MTS_MASK_ARGUMENT(active);
 
         Ray3f ray     = m_world_to_object.transform_affine(ray_);
-        Float t      = -ray.o.z() / ray.d.z();
+        Float t       = -ray.o.z() / ray.d.z();
         Point3f local = ray(t);
 
         // Is intersection within ray segment and disk?
@@ -183,16 +182,27 @@ public:
                                   SurfaceInteraction3f &si_out, Mask active) const override {
         MTS_MASK_ARGUMENT(active);
 
+#if !defined(MTS_ENABLE_EMBREE)
+        Float local_x = cache[0];
+        Float local_y = cache[1];
+#else
+        Ray3f ray_    = m_world_to_object.transform_affine(ray);
+        Float t       = -ray_.o.z() / ray_.d.z();
+        Point3f local = ray_(t);
+        Float local_x = local.x();
+        Float local_y = local.y();
+#endif
+
         SurfaceInteraction3f si(si_out);
 
-        Float r = norm(Point2f(cache[0], cache[1])),
+        Float r = norm(Point2f(local_x, local_y)),
               inv_r = rcp(r);
 
-        Float v = atan2(cache[1], cache[0]) * math::InvTwoPi<Float>;
+        Float v = atan2(local_y, local_x) * math::InvTwoPi<Float>;
         masked(v, v < 0.f) += 1.f;
 
-        Float cos_phi = select(neq(r, 0.f), cache[0] * inv_r, 1.f),
-              sin_phi = select(neq(r, 0.f), cache[1] * inv_r, 0.f);
+        Float cos_phi = select(neq(r, 0.f), local_x * inv_r, 1.f),
+              sin_phi = select(neq(r, 0.f), local_y * inv_r, 0.f);
 
         si.dp_du      = m_object_to_world * Vector3f( cos_phi, sin_phi, 0.f);
         si.dp_dv      = m_object_to_world * Vector3f(-sin_phi, cos_phi, 0.f);
