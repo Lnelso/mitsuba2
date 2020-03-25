@@ -94,7 +94,6 @@ public:
         if (props.has_property("kd_exact_primitive_threshold"))
             set_exact_primitive_threshold(props.int_("kd_exact_primitive_threshold"));
 
-        std::cout << "HairKDTree constructor" << std::endl;
         m_vertices.swap(vertices);
         m_vertex_starts_fiber.swap(vertex_starts_fiber);
         m_hair_count = 0;
@@ -130,32 +129,26 @@ public:
     }
 
     MTS_INLINE const std::vector<Point> &vertices() const {
-        std::cout << "HairKDTree get_vertices" << std::endl;
         return m_vertices;
     }
 
     MTS_INLINE const std::vector<bool> &start_fiber() const {
-        std::cout << "HairKDTree get_start_fiber" << std::endl;
         return m_vertex_starts_fiber;
     }
 
     MTS_INLINE Float radius() const {
-        std::cout << "HairKDTree get_radius" << std::endl;
         return m_radius;
     }
 
     MTS_INLINE Size segment_count() const {
-        std::cout << "HairKDTree segment_count" << std::endl;
         return m_segment_count;
     }
 
     MTS_INLINE Size hair_count() const {
-        std::cout << "HairKDTree hair_count" << std::endl;
         return m_hair_count;
     }
 
     MTS_INLINE Size vertex_count() const {
-        std::cout << "HairKDTree get_vertex_count" << std::endl;
         return m_vertices.size();
     }
 
@@ -641,14 +634,8 @@ public:
 #endif
 
     MTS_INLINE Size primitive_count() const {
-        std::cout << "HairKDTree primitive_count HairKDTree" << std::endl;
         return (Size) m_seg_index.size();
     }
-
-    struct IntersectionStorage {
-        Index iv;
-        Point p;
-    };
 
     MTS_INLINE std::pair<Mask, Float> intersect_prim(Index prim_index, const Ray3f &ray,
                                                  Float *cache, Mask active) const {
@@ -666,9 +653,6 @@ public:
         Vector proj_origin = rel_origin - dot(axis, rel_origin) * axis;
         Vector proj_direction = ray_d - dot(axis, ray_d) * axis;
 
-        std::cout << "HairKDTree intersect_prim before quadratic \n" << std::endl;
-
-
         // Quadratic to intersect circle in projection
         Float A = squared_norm(proj_direction);
         Float B = 2 * dot(proj_origin, proj_direction);
@@ -679,13 +663,11 @@ public:
         near_t = std::get<1>(coeffs);
         far_t = std::get<2>(coeffs);
 
-        if (!std::get<0>(coeffs)) //TODO: find how to get bool from Mask
-            return std::make_pair(false, t); //TODO: make_pair
+        if (!std::get<0>(coeffs))
+            return std::make_pair(false, t);
 
         if (!(near_t <= ray.maxt && far_t >= ray.mint))
             return std::make_pair(false, t);
-
-        std::cout << "HairKDTree intersect_prim after quadratic \n" << std::endl;
 
         Point point_near = ray_o + ray_d * near_t;
         Point point_far = ray_o + ray_d * far_t;
@@ -693,10 +675,8 @@ public:
         Vector n1 = first_miter_normal(prim_index);
         Vector n2 = second_miter_normal(prim_index);
         Point v2 = second_vertex(prim_index);
-        IntersectionStorage *storage = (IntersectionStorage *)(cache);
         Point3f p;
 
-        std::cout << "HairKDTree intersect_prim before storage \n" << std::endl;
         if (dot(point_near - v1, n1) >= 0 &&
             dot(point_near - v2, n2) <= 0 &&
             near_t >= ray.mint) {
@@ -712,12 +692,11 @@ public:
             return std::make_pair(false, t);
         }
 
-        if (storage) {
-            std::cout << "HairKDTree intersect_prim while storing \n" << std::endl;
-            std::cout << storage << std::endl;
-            storage->iv = prim_index;
-            storage->p = p;
-            Log(LogLevel::Warn, "storing succeeded");
+        if (cache) {
+            cache[1] = prim_index;
+            cache[2] = p.x();
+            cache[3] = p.y();
+            cache[4] = p.z();
         }
 
         return std::make_pair(true, t);
@@ -769,13 +748,11 @@ public:
     MTS_IMPORT_TYPES(HairKDTree)
 
     using typename Base::ScalarSize;
-    using IntersectionStorage = typename HairKDTree::IntersectionStorage;
     using Index = typename HairKDTree::Index;
     using ScalarIndex = typename Base::ScalarIndex;
     using PCG32 = mitsuba::PCG32<UInt32>;
 
     HairShape(const Properties &props) : Base(props) {
-        std::cout << "HairShape constructor" << std::endl;
         FileResolver *fs = Thread::thread()->file_resolver();
         fs::path file_path = fs->resolve(props.string("filename"));
 
@@ -888,7 +865,6 @@ public:
             if (is.fail())
                 Log(LogLevel::Error, "Could not open \"%s\"!", file_path.string().c_str());
             while (is.good()) {
-                std::cout << "is is good" << std::endl;
                 std::getline(is, line);
                 if (line.length() > 0 && line[0] == '#') {
                     new_fiber = true;
@@ -897,22 +873,18 @@ public:
                 std::istringstream iss(line);
                 iss >> p.x() >> p.y() >> p.z();
                 if (!iss.fail()) {
-                    std::cout << "iss did not fail" << std::endl;
                     p = object_to_world * p;
                     if (ignore) {
                         // Do nothing
                         ++n_skipped;
                     } else if (new_fiber) {
-                        std::cout << "new fiber" << std::endl;
                         vertices.push_back(p);
                         vertex_starts_fiber.push_back(new_fiber);
                         last_p = p;
                         tangent = ScalarVector3f(0.0f);
                     } else if (p != last_p) {
-                        std::cout << "p is different from last_p" << std::endl;
                         Mask is_zero = tangent == 0.0f;
                         if (all(is_zero)) {
-                            std::cout << "tangent is zero" << std::endl;
                             vertices.push_back(p);
                             vertex_starts_fiber.push_back(new_fiber);
                             tangent = normalize(p - last_p);
@@ -953,8 +925,6 @@ public:
         vertex_starts_fiber.push_back(true);
 
         m_kdtree = new HairKDTree(props, vertices, vertex_starts_fiber, radius);
-
-        std::cout << "End of HairShape Constructor" << std::endl;
     }
 
     const std::vector<ScalarPoint3f> &vertices() const{
@@ -985,9 +955,10 @@ public:
         si.dp_du = ScalarVector3f(0.f);
         si.dp_dv = ScalarVector3f(0.f);
 
-        const IntersectionStorage *storage = (const IntersectionStorage *)(cache);
-        Index iv = storage->iv;
-        si.p = storage->p;
+        Index iv = cache[0];
+        si.p[0] = cache[2];
+        si.p[1] = cache[3];
+        si.p[2] = cache[4];
 
         const Vector3f axis = m_kdtree->tangent(iv);
         si.shape = this;
@@ -1027,7 +998,6 @@ public:
     }
 
     ScalarSize primitive_count() const override{
-        std::cout << "HairShape primitive_count" << std::endl;
         return m_kdtree->hair_count();
     }
 
