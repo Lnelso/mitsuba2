@@ -153,12 +153,12 @@ public:
     }
 
     /*MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active) const {
-        std::cout << "HairKDTree ray_intersect 1" << std::endl;
+        //std::cout << "HairKDTree ray_intersect 1" << std::endl;
         return this->template ray_intersect<true>(ray, cache, active);
     }
 
     MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Mask active) const {
-        std::cout << "HairKDTree ray_intersect 2" << std::endl;
+        //std::cout << "HairKDTree ray_intersect 2" << std::endl;
         return this->template ray_intersect<false>(ray, NULL, active);
         //TODO: either should return a surfaceInteraction or HairShape should take care of it with the tuple
     }*/
@@ -168,7 +168,7 @@ public:
                                                     Float *cache,
                                                     Mask active) const {
         ENOKI_MARK_USED(active);
-        std::cout << "HairKDTree ray_intersect" << std::endl;
+        //std::cout << "HairKDTree ray_intersect" << std::endl;
         if constexpr (!is_array_v<Float>)
             return ray_intersect_scalar<ShadowRay>(ray, cache);
         else
@@ -399,7 +399,7 @@ public:
     }
 
     MTS_INLINE BoundingBox bbox() const {
-        std::cout << "HairKDTree bbox 1" << std::endl;
+        //std::cout << "HairKDTree bbox 1" << std::endl;
         return m_bbox;
     }
 
@@ -408,7 +408,7 @@ public:
             Point cyl_pt, Vector cyl_d, Float radius, Point &center,
             Vector *axes, Float *lengths) const {
 
-        std::cout << "HairKDTree intersect_cyl plane 1" << std::endl;
+        //std::cout << "HairKDTree intersect_cyl plane 1" << std::endl;
 
         if (abs_dot(plane_nrml, cyl_d) < math::Epsilon<Scalar>) //TODO: absDot?
             return false;
@@ -455,7 +455,7 @@ public:
             const Point &min, const Point &max,
             const Point &cyl_pt, const Vector &cyl_d) const {
 
-        std::cout << "HairKDTree intersect_cyl_face" << std::endl;
+        //std::cout << "HairKDTree intersect_cyl_face" << std::endl;
 
         int axis1 = (axis + 1) % 3;
         int axis2 = (axis + 2) % 3;
@@ -528,7 +528,7 @@ public:
     }
 
     BoundingBox bbox(Index index) const {
-        std::cout << "HairKDTree bbox 2" << std::endl;
+        //std::cout << "HairKDTree bbox 2" << std::endl;
 
         Index iv = m_seg_index[index];
         Point center;
@@ -561,7 +561,7 @@ public:
     }
 
     BoundingBox bbox(Index index, const BoundingBox &box) const {
-        std::cout << "HairKDTree bbox 3" << std::endl;
+        //std::cout << "HairKDTree bbox 3" << std::endl;
         BoundingBox base(bbox(index));
         base.clip(box);
 
@@ -606,7 +606,7 @@ public:
     }
 #else
     BoundingBox bbox(Index index) const {
-        std::cout << "HairKDTree bbox 2 alt" << std::endl;
+        //std::cout << "HairKDTree bbox 2 alt" << std::endl;
         Index iv = m_seg_index[index];
 
         const Float cos0 = dot(first_miter_normal(iv), tangent(iv));
@@ -626,7 +626,7 @@ public:
     }
 
     BoundingBox bbox(Indexindex, const BoundingBox &box) const {
-        std::cout << "HairKDTree bbox 3 alt" << std::endl;
+        //std::cout << "HairKDTree bbox 3 alt" << std::endl;
         BoundingBox cbox(bbox(index));
         cbox.clip(box);
         return cbox;
@@ -641,7 +641,7 @@ public:
                                                  Float *cache, Mask active) const {
         ENOKI_MARK_USED(active);
 
-        std::cout << "HairKDTree intersect_prim" << std::endl;
+        //std::cout << "HairKDTree intersect_prim" << std::endl;
 
         Vector axis = tangent(prim_index);
 
@@ -852,7 +852,7 @@ public:
                         last_p = p;
                     }
                 } else {
-                    std::cout << "degenerate" << std::endl;
+                    //std::cout << "degenerate" << std::endl;
                     n_degenerate++;
                 }
                 new_fiber = false;
@@ -937,7 +937,7 @@ public:
     }
 
     std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active = true) const override{
-        std::cout << "HairShape ray_intersect" << std::endl;
+        //std::cout << "HairShape ray_intersect" << std::endl;
         return m_kdtree->template ray_intersect<true>(ray, cache, active);
     }
 
@@ -949,7 +949,7 @@ public:
     void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
         ENOKI_MARK_USED(active);
 
-        std::cout << "HairShape fill_surface_interaction" << std::endl;
+        //std::cout << "HairShape fill_surface_interaction" << std::endl;
 
         si.uv = Point2f(0.f,0.f);
         si.dp_du = ScalarVector3f(0.f);
@@ -978,17 +978,17 @@ public:
     }
 
     ScalarBoundingBox3f bbox() const override{
-        std::cout << "HairShape bbox 1" << std::endl;
+        //std::cout << "HairShape bbox 1" << std::endl;
         return m_kdtree->bbox();
     }
 
     ScalarBoundingBox3f bbox(ScalarIndex index) const override {
-        std::cout << "HairShape bbox 2" << std::endl;
+        //std::cout << "HairShape bbox 2" << std::endl;
         return m_kdtree->bbox(index);
     }
 
     ScalarBoundingBox3f bbox(ScalarIndex index, const ScalarBoundingBox3f &clip) const override{
-        std::cout << "HairShape bbox3" << std::endl;
+        //std::cout << "HairShape bbox3" << std::endl;
         return m_kdtree->bbox(index, clip);
     }
 

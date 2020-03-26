@@ -1719,7 +1719,7 @@ protected:
             Throw("The exact primitive threshold must be bigger than the "
                   "stopping primitive count");
 
-        //std::cout << derived().to_string() << std::endl;
+        ////std::cout << derived().to_string() << std::endl;
 
         Size prim_count = derived().primitive_count();
         if (m_max_depth == 0)
@@ -2072,7 +2072,7 @@ public:
                                                     Float *cache,
                                                     Mask active) const {
         ENOKI_MARK_USED(active);
-        std::cout << "kdtree.h ray intersect line 2075\n" << std::endl;
+        //std::cout << "kdtree.h ray intersect line 2075\n" << std::endl;
         if constexpr (!is_array_v<Float>)
             return ray_intersect_scalar<ShadowRay>(ray, cache);
         else
