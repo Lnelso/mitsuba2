@@ -955,11 +955,10 @@ public:
         si.dp_du = ScalarVector3f(0.f);
         si.dp_dv = ScalarVector3f(0.f);
 
-        Index iv = cache[0];
+        Index iv = cache[1];
         si.p[0] = cache[2];
         si.p[1] = cache[3];
         si.p[2] = cache[4];
-
         const Vector3f axis = m_kdtree->tangent(iv);
         si.shape = this;
 
