@@ -33,7 +33,7 @@
 #include <mitsuba/render/shape.h>
 */
 
-#define MTS_HAIR_USE_FANCY_CLIPPING 0
+#define MTS_HAIR_USE_FANCY_CLIPPING 1
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -128,7 +128,6 @@ public:
             m_indices[i] = m_seg_index[m_indices[i]];
 
         //std::vector<Index>().swap(m_seg_index);
-
     }
 
     MTS_INLINE const std::vector<Point> &vertices() const {
@@ -415,11 +414,6 @@ public:
         if (abs_dot(plane_nrml, cyl_d) < math::Epsilon<Scalar>)
             return false;
 
-        //std::cout << std::abs(norm(plane_nrml)-1) << std::endl;
-        /*std::cout << math::Epsilon<Scalar> << std::endl;
-        std::cout << eps << std::endl;*/
-
-        Assert(std::abs(norm(plane_nrml)-1) < 1e-7);
         Vector B, A = cyl_d - dot(cyl_d, plane_nrml)*plane_nrml;
 
         Float length = norm(A);
@@ -765,7 +759,7 @@ public:
 
         Float radius = props.float_("radius", 0.025f);
 
-        Float angle_threshold = props.float_("angle_threshold", 1.0f);
+        Float angle_threshold = props.float_("angle_threshold", 1.0f) * (Float)(M_PI / 180.0);
         Float dp_thresh = std::cos(angle_threshold);
 
         Float reduction = props.float_("reduction", 0);
@@ -1004,11 +998,11 @@ public:
     }
 
     ScalarSize primitive_count() const override{
-        return m_kdtree->hair_count();
+        return m_kdtree->primitive_count();
     }
 
     ScalarSize effective_primitive_count() const override{
-        return m_kdtree->hair_count();
+        return m_kdtree->primitive_count();
     }
 
     std::string to_string() const override{
