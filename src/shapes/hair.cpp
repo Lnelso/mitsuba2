@@ -33,7 +33,7 @@
 #include <mitsuba/render/shape.h>
 */
 
-#define MTS_HAIR_USE_FANCY_CLIPPING 1
+#define MTS_HAIR_USE_FANCY_CLIPPING 0
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -97,15 +97,18 @@ public:
         m_vertices.swap(vertices);
         m_vertex_starts_fiber.swap(vertex_starts_fiber);
         m_hair_count = 0;
-
         m_seg_index.reserve(m_vertices.size());
+
         for (size_t i=0; i<m_vertices.size()-1; i++) {
+            m_bbox.expand(m_vertices[i]);
             if (m_vertex_starts_fiber[i])
                 m_hair_count++;
             if (!m_vertex_starts_fiber[i+1])
                 m_seg_index.push_back((Index) i);
                 //m_primitive_map.push_back(m_seg_index.size()); Problem is related to m_primitive_map
         }
+        m_bbox.expand(m_vertices[m_vertices.size() - 1]);
+    
         m_segment_count = m_seg_index.size();
 
         Log(Warn, "m_seg_index before building: %s", m_seg_index.size());
@@ -124,7 +127,7 @@ public:
         for (Size i=0; i<m_index_count; ++i)
             m_indices[i] = m_seg_index[m_indices[i]];
 
-        std::vector<Index>().swap(m_seg_index);
+        //std::vector<Index>().swap(m_seg_index);
 
     }
 
@@ -407,13 +410,16 @@ public:
     bool intersect_cyl_plane(Point plane_pt, Normal3f plane_nrml,
             Point cyl_pt, Vector cyl_d, Float radius, Point &center,
             Vector *axes, Float *lengths) const {
-
         //std::cout << "HairKDTree intersect_cyl plane 1" << std::endl;
-
-        if (abs_dot(plane_nrml, cyl_d) < math::Epsilon<Scalar>) //TODO: absDot?
+        
+        if (abs_dot(plane_nrml, cyl_d) < math::Epsilon<Scalar>)
             return false;
 
-        Assert(std::abs(norm(plane_nrml)-1) < math::Epsilon<Scalar>);
+        //std::cout << std::abs(norm(plane_nrml)-1) << std::endl;
+        /*std::cout << math::Epsilon<Scalar> << std::endl;
+        std::cout << eps << std::endl;*/
+
+        Assert(std::abs(norm(plane_nrml)-1) < 1e-7);
         Vector B, A = cyl_d - dot(cyl_d, plane_nrml)*plane_nrml;
 
         Float length = norm(A);
@@ -443,7 +449,7 @@ public:
                 beta0 = -c3/(2*c1);
 
         lengths[0] = std::sqrt(c1*lambda),
-                lengths[1] = std::sqrt(c0*lambda);
+        lengths[1] = std::sqrt(c0*lambda);
 
         center = plane_pt + alpha0 * A + beta0 * B;
         axes[0] = A;
@@ -534,7 +540,7 @@ public:
         Point center;
         Vector axes[2];
         Float lengths[2];
-
+        //std::cout << "bbox before first intersect_cyl_plane" << std::endl; //TODO
         bool success = intersect_cyl_plane(first_vertex(iv), first_miter_normal(iv),
                                          first_vertex(iv), tangent(iv), m_radius * (1-math::Epsilon<Scalar>), center, axes, lengths);
         Assert(success);
@@ -607,27 +613,28 @@ public:
 #else
     BoundingBox bbox(Index index) const {
         //std::cout << "HairKDTree bbox 2 alt" << std::endl;
+        //std::cout << (m_seg_index[0]) << std::endl;
         Index iv = m_seg_index[index];
 
         const Float cos0 = dot(first_miter_normal(iv), tangent(iv));
         const Float cos1 = dot(second_miter_normal(iv), tangent(iv));
-        const Float max_inv_cos = 1.0 / std::min(cos0, cos1);
-        const Vector expandVec(m_radius * maxInvCos);
+        const Float max_inv_cos = 1.0f / (Float)std::min(cos0, cos1);
+        const Vector expand_vec(m_radius * max_inv_cos);
 
         const Point a = first_vertex(iv);
         const Point b = second_vertex(iv);
 
         BoundingBox box;
-        box.expand(a - expand_vec);
-        box.expand(a + expand_vec);
-        box.expand(b - expand_vec);
-        box.expand(b + expand_vec);
+        box.expand((Point)(a - expand_vec));
+        box.expand((Point)(a + expand_vec));
+        box.expand((Point)(b - expand_vec));
+        box.expand((Point)(b + expand_vec));
         return box;
     }
 
-    BoundingBox bbox(Indexindex, const BoundingBox &box) const {
+    BoundingBox bbox(Index index, const BoundingBox &box) const {
         //std::cout << "HairKDTree bbox 3 alt" << std::endl;
-        BoundingBox cbox(bbox(index));
+        BoundingBox cbox = bbox(index);
         cbox.clip(box);
         return cbox;
     }

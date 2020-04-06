@@ -1019,6 +1019,10 @@ protected:
                 return nullptr;
             }
 
+            std::cout << "Execute 3" << std::endl;
+            std::cout << prim_count << std::endl; //157724
+            std::cout << m_tight_bbox << std::endl; //BoundingBox3f[invalid]
+
             /* ==================================================================== */
             /*                              Binning                                 */
             /* ==================================================================== */
@@ -1030,8 +1034,9 @@ protected:
 
                 /* MAP: Bin a number of shapes and return the resulting 'MinMaxBins' data structure */
                 [&](const tbb::blocked_range<Index> &range, MinMaxBins bins) {
-                    for (Index i = range.begin(); i != range.end(); ++i)
+                    for (Index i = range.begin(); i != range.end(); ++i){
                         bins.put(derived.bbox(m_indices[i]));
+                    }
                     return bins;
                 },
 
@@ -1042,6 +1047,8 @@ protected:
                 }
             );
 
+            std::cout << "Execute 4" << std::endl;
+
             /* ==================================================================== */
             /*                        Split candidate search                        */
             /* ==================================================================== */
@@ -1050,9 +1057,13 @@ protected:
             model.set_bounding_box(m_bbox);
             auto best = bins.best_candidate(prim_count, model);
 
+            std::cout << "Execute 5" << std::endl;
+
             Assert(std::isfinite(best.cost));
             Assert(best.split >= m_bbox.min[best.axis]);
             Assert(best.split <= m_bbox.max[best.axis]);
+
+            std::cout << "Execute 6" << std::endl;
 
             /* Allow a few bad refines in sequence before giving up */
             Scalar leaf_cost = model.leaf_cost(prim_count);
@@ -1066,6 +1077,8 @@ protected:
                 m_ctx.bad_refines++;
             }
 
+            std::cout << "Execute 7" << std::endl;
+
             /* ==================================================================== */
             /*                            Partitioning                              */
             /* ==================================================================== */
@@ -1074,6 +1087,8 @@ protected:
 
             /* Release index list */
             IndexVector().swap(m_indices);
+
+            std::cout << "Execute 8" << std::endl;
 
             /* ==================================================================== */
             /*                              Recursion                               */
@@ -1105,6 +1120,8 @@ protected:
                 m_ctx, std::next(children), std::move(partition.right_indices),
                 right_bounds, partition.right_bounds, m_depth + 1,
                 m_bad_refines, &right_cost);
+
+            std::cout << "Execute 9" << std::endl;
 
             set_ref_count(3);
             spawn(left_task);
@@ -1775,7 +1792,7 @@ protected:
                 ctx, ctx.node_storage.begin(), std::move(indices),
                 m_bbox, m_bbox, 0, 0, &final_cost);
 
-            tbb::task::spawn_root_and_wait(task);
+            tbb::task::spawn_root_and_wait(task); //TODO: debug
         }
 
         Log(m_log_level, "Structural kd-tree statistics:");
