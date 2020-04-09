@@ -277,7 +277,6 @@ MTS_VARIANT void Shape<Float, Spectrum>::fill_surface_interaction(const Ray3f & 
 MTS_VARIANT typename Shape<Float, Spectrum>::SurfaceInteraction3f
 Shape<Float, Spectrum>::ray_intersect(const Ray3f &ray, Mask active) const {
     MTS_MASK_ARGUMENT(active);
-
     SurfaceInteraction3f si = zero<SurfaceInteraction3f>();
     Float cache[MTS_KD_INTERSECTION_CACHE_SIZE];
     auto [success, t] = ray_intersect(ray, cache, active);
@@ -286,6 +285,7 @@ Shape<Float, Spectrum>::ray_intersect(const Ray3f &ray, Mask active) const {
 
     if (any(active))
         fill_surface_interaction(ray, cache, si, active);
+
     return si;
 }
 
