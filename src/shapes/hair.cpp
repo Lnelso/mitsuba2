@@ -83,6 +83,7 @@ public:
             set_exact_primitive_threshold(props.int_("kd_exact_primitive_threshold"));
 
         m_vertices.swap(vertices);
+        m_radius_per_vertex.swap(radius_per_vertex);
         m_vertex_starts_fiber.swap(vertex_starts_fiber);
         m_hair_count = 0;
         m_seg_index.reserve(m_vertices.size());
@@ -96,7 +97,7 @@ public:
         }
 
         m_bbox.expand(m_vertices[m_vertices.size() - 1]);
-        Vector extra = (m_bbox.extents() + radius);
+        Vector extra = (m_bbox.extents()); //TODO: max_radius
         m_bbox.min -= extra;
         m_bbox.max += extra;
 
@@ -125,8 +126,8 @@ public:
         return m_vertex_starts_fiber;
     }
 
-    MTS_INLINE Float radius() const {
-        return m_radius;
+    MTS_INLINE Float radius(Index iv) const {
+        return m_radius_per_vertex[iv];
     }
 
     MTS_INLINE Size segment_count() const {
@@ -426,7 +427,7 @@ public:
 
     BoundingBox intersect_cyl_face(int axis,
             const Point &min, const Point &max,
-            const Point &cyl_pt, const Vector &cyl_d) const {
+            const Point &cyl_pt, const Vector &cyl_d, Index iv) const {
 
         int axis1 = (axis + 1) % 3;
         int axis2 = (axis + 2) % 3;
@@ -438,8 +439,19 @@ public:
         Vector ellipse_axes[2];
         Float ellipse_lengths[2];
 
+        Float first_radius = m_radius_per_vertex[iv];
+        Float second_radius = m_radius_per_vertex[iv+1];
+        Point first_point = first_vertex(iv);
+        Point second_point = second_vertex(iv);
+        Float radius = first_radius + (second_radius - first_radius) * squared_norm(cyl_pt - first_point) / squared_norm(second_point - first_point);
+
+        std::cout << first_radius << std::endl;
+        std::cout << second_radius << std::endl;
+        std::cout << radius << std::endl;
+        std::cout << "came here" << std::endl;
+
         BoundingBox aabb;
-        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, m_radius * (1 + math::Epsilon<Scalar>),
+        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, /*m_radius_per_vertex[iv]*/ radius * (1 + math::Epsilon<Scalar>),
                                ellipse_center, ellipse_axes, ellipse_lengths)) {
             return aabb;
         }
@@ -467,7 +479,7 @@ public:
             auto coefs = math::solve_quadratic(A, B, C);
             Float x0 = std::get<1>(coefs);
             Float x1 = std::get<2>(coefs);
-            if (std::get<0>(coefs)) { //TODO: Check how to use Mask as a bool
+            if (std::get<0>(coefs)) {
                 if (x0 >= 0 && x0 <= 1)
                     aabb.expand(p1+(p2-p1)*x0);
                 if (x1 >= 0 && x1 <= 1)
@@ -505,7 +517,7 @@ public:
         Float lengths[2];
 
         bool success = intersect_cyl_plane(first_vertex(iv), first_miter_normal(iv),
-                                         first_vertex(iv), tangent(iv), m_radius * (1-math::Epsilon<Scalar>), center, axes, lengths);
+                                         first_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-math::Epsilon<Scalar>), center, axes, lengths);
         Assert(success);
 
         BoundingBox result;
@@ -517,7 +529,7 @@ public:
         }
 
         success = intersect_cyl_plane(second_vertex(iv), second_miter_normal(iv),
-                                    second_vertex(iv), tangent(iv), m_radius * (1-math::Epsilon<Scalar>), center, axes, lengths);
+                                    second_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-math::Epsilon<Scalar>), center, axes, lengths);
         Assert(success);
 
         axes[0] *= lengths[0]; axes[1] *= lengths[1];
@@ -541,32 +553,32 @@ public:
         clipped_bbox.expand(intersect_cyl_face(0,
                                                Point(base.min.x(), base.min.y(), base.min.z()),
                                                Point(base.min.x(), base.max.y(), base.max.z()),
-                                               cyl_pt, cyl_d));
+                                               cyl_pt, cyl_d, iv));
 
         clipped_bbox.expand(intersect_cyl_face(0,
                                                Point(base.max.x(), base.min.y(), base.min.z()),
                                                Point(base.max.x(), base.max.y(), base.max.z()),
-                                               cyl_pt, cyl_d));
+                                               cyl_pt, cyl_d, iv));
 
         clipped_bbox.expand(intersect_cyl_face(1,
                                                Point(base.min.x(), base.min.y(), base.min.z()),
                                                Point(base.max.x(), base.min.y(), base.max.z()),
-                                               cyl_pt, cyl_d));
+                                               cyl_pt, cyl_d, iv));
 
         clipped_bbox.expand(intersect_cyl_face(1,
                                                Point(base.min.x(), base.max.y(), base.min.z()),
                                                Point(base.max.x(), base.max.y(), base.max.z()),
-                                               cyl_pt, cyl_d));
+                                               cyl_pt, cyl_d, iv));
 
         clipped_bbox.expand(intersect_cyl_face(2,
                                                Point(base.min.x(), base.min.y(), base.min.z()),
                                                Point(base.max.x(), base.max.y(), base.min.z()),
-                                               cyl_pt, cyl_d));
+                                               cyl_pt, cyl_d, iv));
 
         clipped_bbox.expand(intersect_cyl_face(2,
                                                Point(base.min.x(), base.min.y(), base.max.z()),
                                                Point(base.max.x(), base.max.y(), base.max.z()),
-                                               cyl_pt, cyl_d));
+                                               cyl_pt, cyl_d, iv));
 
         clipped_bbox.clip(base);
 
@@ -579,7 +591,7 @@ public:
         const Float cos0 = dot(first_miter_normal(iv), tangent(iv));
         const Float cos1 = dot(second_miter_normal(iv), tangent(iv));
         const Float max_inv_cos = 1.0f / (Float)std::min(cos0, cos1);
-        const Vector expand_vec(m_radius * max_inv_cos);
+        const Vector expand_vec(m_radius_per_vertex[iv] * max_inv_cos);
 
         const Point a = first_vertex(iv);
         const Point b = second_vertex(iv);
@@ -609,9 +621,9 @@ public:
 
         Vector axis = tangent(prim_index);
 
-        Point ray_o(ray.o);
-        Vector ray_d(ray.d);
-        Point v1 = first_vertex(prim_index);
+        Point ray_o(ray.o); //O
+        Vector ray_d(ray.d); //D
+        Point v1 = first_vertex(prim_index);//
 
         Vector rel_origin = ray_o - v1;
         Vector proj_origin = rel_origin - dot(axis, rel_origin) * axis;
@@ -620,7 +632,7 @@ public:
         // Quadratic to intersect circle in projection
         Float A = squared_norm(proj_direction);
         Float B = 2 * dot(proj_origin, proj_direction);
-        Float C = squared_norm(proj_origin) - m_radius*m_radius;
+        Float C = squared_norm(proj_origin) - m_radius_per_vertex[prim_index] * m_radius_per_vertex[prim_index];
 
         Float near_t, far_t, t;
         auto coeffs = math::solve_quadratic(A, B, C);
@@ -641,10 +653,14 @@ public:
         Point v2 = second_vertex(prim_index);
         Point3f p;
 
+        Float first_radius = m_radius_per_vertex[iv];
+        Float second_radius = m_radius_per_vertex[iv+1];
+
         if (dot(point_near - v1, n1) >= 0 &&
             dot(point_near - v2, n2) <= 0 &&
             near_t >= ray.mint) {
             p = Point3f(ray_o + ray_d * near_t);
+            Float radius = first_radius + (second_radius - first_radius) * squared_norm(p - v1) / squared_norm(v2 - v1);
             t = (Float) near_t;
         } else if (dot(point_far - v1, n1) >= 0 &&
                    dot(point_far - v2, n2) <= 0) {
@@ -699,7 +715,6 @@ private:
     std::vector<bool> m_vertex_starts_fiber;
     std::vector<Index> m_seg_index;
     std::vector<Float> m_radius_per_vertex;
-    Float m_radius;
     Size m_segment_count;
     Size m_hair_count;
 };
@@ -737,7 +752,7 @@ public:
         std::unique_ptr<PCG32> rng = std::make_unique<PCG32>(); //TODO: Is it the correct way to do it?
 
         ScalarTransform4f object_to_world = props.transform("to_world");
-        radius *= norm((object_to_world * ScalarVector3f(0.f, 0.f, 1.f)));
+        //radius *= norm((object_to_world * ScalarVector3f(0.f, 0.f, 1.f)));
 
         Log(LogLevel::Info, "Loading hair geometry from \"%s\" ..", file_path.filename().string().c_str());
         Timer* timer = new Timer();
@@ -838,6 +853,7 @@ public:
                 std::istringstream iss(line);
                 iss >> p.x() >> p.y() >> p.z() >> radius;
                 if (!iss.fail()) {
+                    radius *= norm((object_to_world * ScalarVector3f(0.f, 0.f, 1.f)));
                     p = object_to_world * p;
                     if (ignore) {
                         // Do nothing
@@ -861,6 +877,7 @@ public:
                             if (dot(next_tangent, tangent) > dp_thresh) {
                                 tangent = normalize(p - vertices[vertices.size()-2]);
                                 vertices[vertices.size()-1] = p;
+                                radius_per_vertex[vertices.size()-1] = radius;
                                 ++n_skipped;
                             } else {
                                 vertices.push_back(p);
@@ -930,7 +947,7 @@ public:
         si.n = Normal3f(normalize(rel_hit_point - dot(axis, rel_hit_point) * axis));
 
         const Vector3f local = si.to_local(rel_hit_point);
-        si.p += si.n * (m_kdtree->radius() - std::sqrt(local.y()*local.y()+local.z()*local.z()));
+        si.p += si.n * (m_kdtree->radius(iv) - std::sqrt(local.y()*local.y()+local.z()*local.z()));
 
         si.sh_frame.n = si.n;
         auto uv = coordinate_system(si.sh_frame.n);
@@ -971,7 +988,6 @@ public:
             << "   num_vertices = " << m_kdtree->vertex_count() << ","
             << "   num_segments = " << m_kdtree->segment_count() << ","
             << "   num_hairs = " << m_kdtree->hair_count() << ","
-            << "   radius = " << m_kdtree->radius()
             << "]";
         return oss.str();
     }
