@@ -58,7 +58,7 @@ public:
     using Scalar = typename Base::Scalar;
 
     HairKDTree(const Properties &props, std::vector<Point> &vertices,
-               std::vector<bool> &vertex_starts_fiber, std::vector<Float> radius_per_vertex)
+               std::vector<bool> &vertex_starts_fiber, std::vector<Float> radius_per_vertex, Float max_radius, bool cylinder)
             : Base(SurfaceAreaHeuristic3f(
                   props.float_("kd_intersection_cost", 20.f),
                   props.float_("kd_traversal_cost", 15.f),
@@ -83,10 +83,12 @@ public:
             set_exact_primitive_threshold(props.int_("kd_exact_primitive_threshold"));
 
         m_vertices.swap(vertices);
+        std::cout << radius_per_vertex << std::endl;
         m_radius_per_vertex.swap(radius_per_vertex);
         m_vertex_starts_fiber.swap(vertex_starts_fiber);
         m_hair_count = 0;
         m_seg_index.reserve(m_vertices.size());
+        m_cylinder = cylinder;
 
         for (size_t i=0; i<m_vertices.size()-1; i++) {
             m_bbox.expand(m_vertices[i]);
@@ -97,7 +99,7 @@ public:
         }
 
         m_bbox.expand(m_vertices[m_vertices.size() - 1]);
-        Vector extra = (m_bbox.extents()); //TODO: max_radius
+        Vector extra = (m_bbox.extents() + max_radius);
         m_bbox.min -= extra;
         m_bbox.max += extra;
 
@@ -438,20 +440,9 @@ public:
         Point ellipse_center;
         Vector ellipse_axes[2];
         Float ellipse_lengths[2];
-
-        Float first_radius = m_radius_per_vertex[iv];
-        Float second_radius = m_radius_per_vertex[iv+1];
-        Point first_point = first_vertex(iv);
-        Point second_point = second_vertex(iv);
-        Float radius = first_radius + (second_radius - first_radius) * squared_norm(cyl_pt - first_point) / squared_norm(second_point - first_point);
-
-        std::cout << first_radius << std::endl;
-        std::cout << second_radius << std::endl;
-        std::cout << radius << std::endl;
-        std::cout << "came here" << std::endl;
-
+        
         BoundingBox aabb;
-        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, /*m_radius_per_vertex[iv]*/ radius * (1 + math::Epsilon<Scalar>),
+        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, m_radius_per_vertex[iv] * (1 + math::Epsilon<Scalar>),
                                ellipse_center, ellipse_axes, ellipse_lengths)) {
             return aabb;
         }
@@ -591,7 +582,8 @@ public:
         const Float cos0 = dot(first_miter_normal(iv), tangent(iv));
         const Float cos1 = dot(second_miter_normal(iv), tangent(iv));
         const Float max_inv_cos = 1.0f / (Float)std::min(cos0, cos1);
-        const Vector expand_vec(m_radius_per_vertex[iv] * max_inv_cos);
+        const Float max = std::max(m_radius_per_vertex[iv], m_radius_per_vertex[iv+1]); //TODO: check
+        const Vector expand_vec(max * max_inv_cos);
 
         const Point a = first_vertex(iv);
         const Point b = second_vertex(iv);
@@ -614,25 +606,50 @@ public:
     MTS_INLINE Size primitive_count() const {
         return (Size) m_seg_index.size();
     }
-
+//http://lousodrome.net/blog/light/2017/01/03/intersection-of-a-ray-and-a-cone/
     MTS_INLINE std::pair<Mask, Float> intersect_prim(Index prim_index, const Ray3f &ray,
                                                  Float *cache, Mask active) const {
         ENOKI_MARK_USED(active);
 
         Vector axis = tangent(prim_index);
 
-        Point ray_o(ray.o); //O
-        Vector ray_d(ray.d); //D
-        Point v1 = first_vertex(prim_index);//
+        Point ray_o(ray.o);
+        Vector ray_d(ray.d);
+
+        Point v1 = first_vertex(prim_index);
+        Point v2 = second_vertex(prim_index);
 
         Vector rel_origin = ray_o - v1;
         Vector proj_origin = rel_origin - dot(axis, rel_origin) * axis;
-        Vector proj_direction = ray_d - dot(axis, ray_d) * axis;
 
-        // Quadratic to intersect circle in projection
-        Float A = squared_norm(proj_direction);
-        Float B = 2 * dot(proj_origin, proj_direction);
-        Float C = squared_norm(proj_origin) - m_radius_per_vertex[prim_index] * m_radius_per_vertex[prim_index];
+        Float A, B, C;
+        if(m_cylinder || std::abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < math::Epsilon<Scalar>){
+            Vector proj_direction = ray_d - dot(axis, ray_d) * axis;
+
+            A = squared_norm(proj_direction);
+            B = 2 * dot(proj_origin, proj_direction);
+            C = squared_norm(proj_origin) - m_radius_per_vertex[prim_index]*m_radius_per_vertex[prim_index];
+        } else{
+            Point p_circle_v1 = v1 + m_radius_per_vertex[prim_index] * normalize(proj_origin);
+            Point p_circle_v2 = v2 + m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
+            Vector normalized_edge = normalize(p_circle_v2 - p_circle_v1);
+
+            Float sin_theta = norm(cross(normalized_edge, axis));
+            Float cos_theta = dot(normalized_edge, axis);
+            Float square_cos_theta = cos_theta * cos_theta;
+
+            Float axis_direction = m_radius_per_vertex[prim_index] > m_radius_per_vertex[prim_index+1] ? 1 : -1;
+
+            Point cone_top = v1 + (m_radius_per_vertex[prim_index] / sin_theta) * axis * axis_direction;
+            Vector center_origin = ray_o - cone_top;
+
+            Float d_dot_axis = dot(ray_d, axis); 
+            Float center_origin_dot_axis = dot(center_origin, axis);
+
+            A = d_dot_axis * d_dot_axis - square_cos_theta;
+            B = 2 * (d_dot_axis * center_origin_dot_axis - dot(ray_d, center_origin) * square_cos_theta);
+            C = center_origin_dot_axis * center_origin_dot_axis - dot(center_origin, center_origin) * square_cos_theta;
+        }
 
         Float near_t, far_t, t;
         auto coeffs = math::solve_quadratic(A, B, C);
@@ -650,17 +667,12 @@ public:
 
         Vector n1 = first_miter_normal(prim_index);
         Vector n2 = second_miter_normal(prim_index);
-        Point v2 = second_vertex(prim_index);
         Point3f p;
-
-        Float first_radius = m_radius_per_vertex[iv];
-        Float second_radius = m_radius_per_vertex[iv+1];
 
         if (dot(point_near - v1, n1) >= 0 &&
             dot(point_near - v2, n2) <= 0 &&
             near_t >= ray.mint) {
             p = Point3f(ray_o + ray_d * near_t);
-            Float radius = first_radius + (second_radius - first_radius) * squared_norm(p - v1) / squared_norm(v2 - v1);
             t = (Float) near_t;
         } else if (dot(point_far - v1, n1) >= 0 &&
                    dot(point_far - v2, n2) <= 0) {
@@ -717,6 +729,7 @@ private:
     std::vector<Float> m_radius_per_vertex;
     Size m_segment_count;
     Size m_hair_count;
+    bool m_cylinder;
 };
 
 MTS_IMPLEMENT_CLASS_VARIANT(HairKDTree, TShapeKDTree)
@@ -736,7 +749,7 @@ public:
         FileResolver *fs = Thread::thread()->file_resolver();
         fs::path file_path = fs->resolve(props.string("filename"));
 
-        Float radius = props.float_("radius", 0.025f);
+        Float default_radius = props.float_("radius", 0.025f);
 
         Float angle_threshold = props.float_("angle_threshold", 1.0f) * (Float)(M_PI / 180.0);
         Float dp_thresh = std::cos(angle_threshold);
@@ -747,12 +760,12 @@ public:
         } else if (reduction > 0){
             Float correction = 1.0f / (1-reduction);
             Log(LogLevel::Debug, "Reducing the amount of geometry by %.2f%%, scaling radii by %f.");
-            radius *= correction;
+            default_radius *= correction;
         }
+        Float radius = default_radius;
         std::unique_ptr<PCG32> rng = std::make_unique<PCG32>(); //TODO: Is it the correct way to do it?
 
         ScalarTransform4f object_to_world = props.transform("to_world");
-        //radius *= norm((object_to_world * ScalarVector3f(0.f, 0.f, 1.f)));
 
         Log(LogLevel::Info, "Loading hair geometry from \"%s\" ..", file_path.filename().string().c_str());
         Timer* timer = new Timer();
@@ -770,6 +783,7 @@ public:
 
         std::vector<ScalarPoint3f> vertices;
         std::vector<Float> radius_per_vertex;
+        Float max_radius = 0.f;
         std::vector<bool> vertex_starts_fiber;
         ScalarVector3f tangent(0.0f);
         size_t n_degenerate = 0, n_skipped = 0;
@@ -851,9 +865,17 @@ public:
                     continue;
                 }
                 std::istringstream iss(line);
-                iss >> p.x() >> p.y() >> p.z() >> radius;
+                if(props.has_property("radius") || props.has_property("base")){
+                    iss >> p.x() >> p.y() >> p.z();
+                    radius = default_radius;
+                } else{
+                    iss >> p.x() >> p.y() >> p.z() >> radius;
+                }
                 if (!iss.fail()) {
                     radius *= norm((object_to_world * ScalarVector3f(0.f, 0.f, 1.f)));
+                    if(radius >= max_radius){
+                        max_radius = radius;
+                    }
                     p = object_to_world * p;
                     if (ignore) {
                         // Do nothing
@@ -897,6 +919,16 @@ public:
                         ignore = rng->next_float32() < reduction;
                 }
             }
+
+            if(props.has_property("base") && props.has_property("tip")){
+                Float size = radius_per_vertex.size();
+                Float base = props.float_("base");
+                Float incr = (base - props.float_("tip")) / size;
+                radius_per_vertex[0] = base;
+                for(size_t i = 1; i < size; ++i){
+                    radius_per_vertex[i] = base - (i+1) * incr;
+                }
+            }
         }
 
         if (n_degenerate > 0)
@@ -909,7 +941,7 @@ public:
 
         vertex_starts_fiber.push_back(true);
 
-        m_kdtree = new HairKDTree(props, vertices, vertex_starts_fiber, radius_per_vertex);
+        m_kdtree = new HairKDTree(props, vertices, vertex_starts_fiber, radius_per_vertex, max_radius, props.has_property("radius"));
     }
 
     const std::vector<ScalarPoint3f> &vertices() const{
@@ -923,11 +955,6 @@ public:
     std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active = true) const override{
         return m_kdtree->template ray_intersect<true>(ray, cache, active);
     }
-
-    /*SurfaceInteraction3f ray_intersect(const Ray3f &ray, Mask active = true) const {
-        m_kdtree->ray_intersect(ray, active); //TODO
-        return SurfaceInteraction3f();
-    }*/
 
     void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
         ENOKI_MARK_USED(active);
