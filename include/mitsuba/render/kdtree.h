@@ -2111,8 +2111,7 @@ public:
                 /* Compute parametric distance along the rays to the split plane */
                 Float t_plane = (split - ray.o[axis]) * ray.d_rcp[axis];
 
-                bool left_first  = (ray.o[axis] < split) ||
-                                   (ray.o[axis] == split && ray.d[axis] >= 0.f),
+                bool left_first  = (ray.o[axis] < split) || (ray.o[axis] == split && ray.d[axis] >= 0.f),
                      start_after = t_plane < mint,
                      end_before  = t_plane > maxt || t_plane < 0.f || !std::isfinite(t_plane),
                      single_node = start_after || end_before;

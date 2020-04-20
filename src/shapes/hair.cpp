@@ -83,7 +83,6 @@ public:
             set_exact_primitive_threshold(props.int_("kd_exact_primitive_threshold"));
 
         m_vertices.swap(vertices);
-        std::cout << radius_per_vertex << std::endl;
         m_radius_per_vertex.swap(radius_per_vertex);
         m_vertex_starts_fiber.swap(vertex_starts_fiber);
         m_hair_count = 0;
@@ -185,35 +184,34 @@ public:
                 const Float split   = node->split();
                 const uint32_t axis = node->axis();
 
-                /* Compute parametric distance along the rays to the split plane */
+                //Compute parametric distance along the rays to the split plane
                 Float t_plane = (split - ray.o[axis]) * ray.d_rcp[axis];
 
-                bool left_first  = (ray.o[axis] < split) ||
-                                   (ray.o[axis] == split && ray.d[axis] >= 0.f),
+                bool left_first  = (ray.o[axis] < split) || (ray.o[axis] == split && ray.d[axis] >= 0.f),
                      start_after = t_plane < mint,
                      end_before  = t_plane > maxt || t_plane < 0.f || !std::isfinite(t_plane),
                      single_node = start_after || end_before;
 
-                /* If we only need to visit one node, just pick the correct one and continue */
+                //If we only need to visit one node, just pick the correct one and continue
                 if (likely(single_node)) {
                     bool visit_left = end_before == left_first;
                     node = node->left() + (visit_left ? 0 : 1);
                     continue;
                 }
 
-                /* Visit both child nodes in the right order */
+                //Visit both child nodes in the right order
                 Index node_offset = left_first ? 0 : 1;
                 const KDNode *left   = node->left(),
                              *n_cur  = left + node_offset,
                              *n_next = left + (1 - node_offset);
 
-                /* Postpone visit to 'n_next' */
+                //Postpone visit to 'n_next'
                 KDStackEntry& entry = stack[stack_index++];
                 entry.mint = t_plane;
                 entry.maxt = maxt;
                 entry.node = n_next;
 
-                /* Visit 'n_cur' now */
+                //Visit 'n_cur' now
                 node = n_cur;
                 maxt = t_plane;
                 continue;
@@ -253,9 +251,7 @@ public:
     }
 
     template <bool ShadowRay>
-    MTS_INLINE std::pair<Mask, Float> ray_intersect_packet(Ray3f ray,
-                                                           Float *cache,
-                                                           Mask active) const {
+    MTS_INLINE std::pair<Mask, Float> ray_intersect_packet(Ray3f ray, Float *cache, Mask active) const {
         /// Ray traversal stack entry
         struct KDStackEntry {
             // Ray distance associated with the node entry and exit point
@@ -582,7 +578,7 @@ public:
         const Float cos0 = dot(first_miter_normal(iv), tangent(iv));
         const Float cos1 = dot(second_miter_normal(iv), tangent(iv));
         const Float max_inv_cos = 1.0f / (Float)std::min(cos0, cos1);
-        const Float max = std::max(m_radius_per_vertex[iv], m_radius_per_vertex[iv+1]); //TODO: check
+        const Float max = std::max(m_radius_per_vertex[iv], m_radius_per_vertex[iv+1]);
         const Vector expand_vec(max * max_inv_cos);
 
         const Point a = first_vertex(iv);
@@ -669,13 +665,10 @@ public:
         Vector n2 = second_miter_normal(prim_index);
         Point3f p;
 
-        if (dot(point_near - v1, n1) >= 0 &&
-            dot(point_near - v2, n2) <= 0 &&
-            near_t >= ray.mint) {
+        if (dot(point_near - v1, n1) >= 0 && dot(point_near - v2, n2) <= 0 && near_t >= ray.mint) {
             p = Point3f(ray_o + ray_d * near_t);
             t = (Float) near_t;
-        } else if (dot(point_far - v1, n1) >= 0 &&
-                   dot(point_far - v2, n2) <= 0) {
+        } else if (dot(point_far - v1, n1) >= 0 && dot(point_far - v2, n2) <= 0) {
             if (far_t > ray.maxt)
                 return std::make_pair(false, t);
             p = Point3f(ray_o + ray_d * far_t);
@@ -809,7 +802,7 @@ public:
                     binary_stream->read((void*)&p.z(), sizeof(p.z()));
                     new_fiber = true;
                     if (reduction > 0)
-                        ignore = rng->next_float32() < reduction; //TODO: may need a mask on the next_float32 call
+                        ignore = rng->next_float32() < reduction;
                 } else {
                     p[0] = value;
                     binary_stream->read((void*)&p.y(), sizeof(p.y()));
@@ -823,6 +816,7 @@ public:
                     ++n_skipped;
                 } else if (new_fiber) {
                     vertices.push_back(p);
+                    radius_per_vertex.push_back(default_radius);
                     vertex_starts_fiber.push_back(new_fiber);
                     last_p = p;
                     tangent = ScalarVector3f(0.0f);
@@ -830,6 +824,7 @@ public:
                     Mask is_zero = tangent == 0.0f;
                     if (all(is_zero)) {
                         vertices.push_back(p);
+                        radius_per_vertex.push_back(default_radius);
                         vertex_starts_fiber.push_back(new_fiber);
                         tangent = normalize(p - last_p);
                         last_p = p;
@@ -838,9 +833,11 @@ public:
                         if (dot(next_tangent, tangent) > dp_thresh) {
                             tangent = normalize(p - vertices[vertices.size()-2]);
                             vertices[vertices.size()-1] = p;
+                            radius_per_vertex[vertices.size()-1] = default_radius;
                             ++n_skipped;
                         } else {
                             vertices.push_back(p);
+                            radius_per_vertex.push_back(default_radius);
                             vertex_starts_fiber.push_back(new_fiber);
                             tangent = next_tangent;
                         }
@@ -919,15 +916,15 @@ public:
                         ignore = rng->next_float32() < reduction;
                 }
             }
+        }
 
-            if(props.has_property("base") && props.has_property("tip")){
-                Float size = radius_per_vertex.size();
-                Float base = props.float_("base");
-                Float incr = (base - props.float_("tip")) / size;
-                radius_per_vertex[0] = base;
-                for(size_t i = 1; i < size; ++i){
-                    radius_per_vertex[i] = base - (i+1) * incr;
-                }
+        if(props.has_property("base") && props.has_property("tip")){
+            Float size = radius_per_vertex.size();
+            Float base = props.float_("base");
+            Float incr = (base - props.float_("tip")) / size;
+            radius_per_vertex[0] = base;
+            for(size_t i = 1; i < size; ++i){
+                radius_per_vertex[i] = base - (i+1) * incr;
             }
         }
 
@@ -967,16 +964,22 @@ public:
         si.p[0] = cache[2];
         si.p[1] = cache[3];
         si.p[2] = cache[4];
+
         const Vector3f axis = m_kdtree->tangent(iv);
         si.shape = this;
 
         const Vector3f rel_hit_point = si.p - m_kdtree->first_vertex(iv);
-        si.n = Normal3f(normalize(rel_hit_point - dot(axis, rel_hit_point) * axis));
+        Normal3f n = Normal3f(normalize(rel_hit_point - dot(axis, rel_hit_point) * axis));
+        //si.n = n; //???
+        Frame3f frame = Frame3f();
+        frame.n = n;
+        frame.s = axis;
+        frame.t = cross(frame.n, frame.s);
 
-        const Vector3f local = si.to_local(rel_hit_point);
-        si.p += si.n * (m_kdtree->radius(iv) - std::sqrt(local.y()*local.y()+local.z()*local.z()));
+        const Vector3f local = frame.to_local(rel_hit_point);
+        si.p += n * (m_kdtree->radius(iv) - std::sqrt(local.y()*local.y()+local.z()*local.z()));
 
-        si.sh_frame.n = si.n;
+        si.sh_frame.n = n;
         auto uv = coordinate_system(si.sh_frame.n);
         si.dp_du = uv.first;
         si.dp_dv = uv.second;
