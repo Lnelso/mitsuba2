@@ -2363,7 +2363,6 @@ public:
 
         // Incident direction in local coordinates
         si.wi = select(active, si.to_local(-ray.d), -ray.d);
-
         return si;
     }
 
