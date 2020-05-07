@@ -102,6 +102,13 @@ public:
         m_bbox.min -= extra;
         m_bbox.max += extra;
 
+        /*
+        const Float eps = MTS_KD_AABB_EPSILON;
+
+        m_bbox.min -= (m_bbox.max-m_bbox.min) * eps + VectorType(eps);
+        m_bbox.max += (m_bbox.max-m_bbox.min) * eps + VectorType(eps);
+         */
+
         m_segment_count = m_seg_index.size();
 
         //TODO: logging
@@ -950,7 +957,7 @@ public:
     }
 
     std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active = true) const override{
-        return m_kdtree->template ray_intersect<true>(ray, cache, active);
+        return m_kdtree->template ray_intersect<false>(ray, cache, active);
     }
 
     void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
@@ -965,14 +972,15 @@ public:
         si.p[1] = cache[3];
         si.p[2] = cache[4];
 
+
         const Vector3f axis = m_kdtree->tangent(iv);
         si.shape = this;
 
         const Vector3f rel_hit_point = si.p - m_kdtree->first_vertex(iv);
-        Normal3f n = Normal3f(normalize(rel_hit_point - dot(axis, rel_hit_point) * axis));
-        //si.n = n; //???
-        Frame3f frame = Frame3f();
-        frame.n = n;
+        auto n = normalize(rel_hit_point - dot(axis, rel_hit_point) * axis);
+        si.n = n;
+
+        Frame3f frame = Frame3f(n);
         frame.s = axis;
         frame.t = cross(frame.n, frame.s);
 

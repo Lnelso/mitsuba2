@@ -707,7 +707,82 @@ Value square_to_rough_fiber_pdf(const Vector3 &v, const Vector3 &wi, const Vecto
 }
 
 //! @}
-// =======================================================================
+// ================================== Hair Sampling ===================================== 
+template <typename Float>
+MTS_INLINE Float I0(Float x){
+    Float val = 0;
+    Float x2i = 1;
+    int64_t ifact = 1;
+    int i4 = 1;
+    // I0(x) \approx Sum_i x^(2i) / (4^i (i!)^2)
+    for (int i = 0; i < 10; ++i) {
+        if (i > 1) ifact *= i;
+        val += x2i / (i4 * sqr(ifact));
+        x2i *= x * x;
+        i4 *= 4;
+    }
+    return val;
+}
+
+template <typename Float>
+MTS_INLINE Float log_I0(Float x){
+    if (x > 12)
+        return x + 0.5f * (Float)(-std::log(2 * math::Pi<Float>) + std::log(1 / x) + 1 / (8 * x));
+    else
+        return std::log(I0(x));
+}
+
+template <typename Float>
+Float Mp(Float cos_theta_i, Float cos_theta_o, Float sin_theta_i, Float sin_theta_o, Float v){
+    Float a = cos_theta_i * cos_theta_o / v;
+    Float b = sin_theta_i * sin_theta_o / v;
+    Float mp =
+        (v <= .1f)
+            ? (std::exp(log_I0(a) - b - 1 / v + 0.6931f + std::log(1 / (2 * v))))
+            : (std::exp(-b) * I0(a)) / (std::sinh(1 / v) * 2 * v);
+    Assert(!std::isinf(mp) && !std::isnan(mp));
+    return mp;
+}
+
+template <typename Float>
+MTS_INLINE Float Phi(int p, Float gamma_o, Float gamma_t){
+    return 2 * p * gamma_t - 2 * gamma_o + p * math::Pi<Float>;
+}
+
+template <typename Float>
+MTS_INLINE Float logistic_cdf(Float x, Float s){
+    return 1 / (1 + std::exp(-x / s));
+}
+
+template <typename Float>
+MTS_INLINE Float logistic_pdf(Float x, Float s){
+    x = std::abs(x);
+    return std::exp(-x / s) / (s * sqr(1 + std::exp(-x / s)));
+}
+
+template <typename Float>
+MTS_INLINE Float trimmed_logistic(Float x, Float s, Float a, Float b){
+    Assert(a < b);
+    return logistic_pdf(x, s) / (logistic_cdf(b, s) - logistic_cdf(a, s));
+}
+
+template <typename Float>
+inline Float Np(Float phi, int p, Float s, Float gamma_o, Float gamma_t){
+    Float dphi = phi - Phi(p, gamma_o, gamma_t);
+    // Remap _dphi_ to $[-\pi,\pi]$
+    while (dphi > math::Pi<Float>) dphi -= 2 * math::Pi<Float>;
+    while (dphi < -math::Pi<Float>) dphi += 2 * math::Pi<Float>;
+    return trimmed_logistic(dphi, s, -math::Pi<Float>, math::Pi<Float>);
+}
+
+template <typename Float>
+Float sample_trimmed_logistic(Float u, Float s, Float a, Float b){
+    Assert(a < b);
+    Float k = logistic_cdf(b, s) - logistic_cdf(a, s);
+    Float x = -s * std::log(1 / (u * k + logistic_cdf(a, s)) - 1);
+    Assert(!std::isnan(x));
+    return clamp(x, a, b);
+}
 
 NAMESPACE_END(warp)
 NAMESPACE_END(mitsuba)
