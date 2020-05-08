@@ -67,16 +67,6 @@ private:
 	    return 1;
 	}
 
-	MTS_INLINE Float safe_asin(Float x) const{
-	    Assert(x >= -1.0001 && x <= 1.0001);
-	    return std::asin(clamp(x, -1, 1));
-	}
-
-	MTS_INLINE Float safe_sqrt(Float x) const {
-	    Assert(x >= -1e-4);
-	    return std::sqrt(std::max(Float(0), x));
-	}
-
     uint32_t compact_1_by_1(uint32_t x) const{
         // x = -f-e -d-c -b-a -9-8 -7-6 -5-4 -3-2 -1-0
         x &= 0x55555555;
@@ -99,11 +89,11 @@ private:
         return {bits[0] / Float(1 << 16), bits[1] / Float(1 << 16)};
     }
 
-    std::array<Spectrum, p_max + 1> Ap(Float cos_theta_o, Float eta, Float h, const Spectrum &T) const{
+    std::array<Spectrum, p_max + 1> Ap(Float cos_theta_i, Float eta, Float h, const Spectrum &T) const{
 	    std::array<Spectrum, p_max + 1> ap;
 	    // Compute $p=0$ attenuation at initial cylinder intersection
 	    Float cos_gamma_o = safe_sqrt(1 - h * h);
-	    Float cos_theta = cos_theta_o * cos_gamma_o;
+	    Float cos_theta = cos_theta_i * cos_gamma_o;
 	    //Float f = FrDielectric(cosTheta, 1.f, eta);
 	    auto res = fresnel(cos_theta, eta); //F, cos_theta_t, eta_it, eta_ti
 	    Float f = std::get<0>(res);
@@ -120,22 +110,22 @@ private:
 	    return ap;
 	}
 
-	std::array<Float, p_max + 1> compute_ap_pdf(Float cos_theta_o) const {
+	std::array<Float, p_max + 1> compute_ap_pdf(Float cos_theta_i, const SurfaceInteraction3f &si, Mask active) const {
 	    // Compute array of $A_p$ values for _cosThetaO_
-	    Float sin_theta_o = safe_sqrt(1 - cos_theta_o * cos_theta_o);
+	    Float sin_theta_i = safe_sqrt(1 - cos_theta_i * cos_theta_i);
 
 	    // Compute $\cos \thetat$ for refracted ray
-	    Float sin_theta_t = sin_theta_o / eta;
+	    Float sin_theta_t = sin_theta_i / eta;
 	    Float cos_theta_t = safe_sqrt(1 - sqr(sin_theta_t));
 
 	    // Compute $\gammat$ for refracted ray
-	    Float etap = std::sqrt(eta * eta - sqr(sin_theta_o)) / cos_theta_o;
+	    Float etap = std::sqrt(eta * eta - sqr(sin_theta_i)) / cos_theta_i;
 	    Float sin_gamma_t = h / etap;
 	    Float cos_gamma_t = safe_sqrt(1 - sqr(sin_gamma_t));
 
 	    // Compute the transmittance _T_ of a single path through the cylinder
-	    Spectrum T = exp(-sigma_a * (2 * cos_gamma_t / cos_theta_t));
-	    std::array<Spectrum, p_max + 1> ap = Ap(cos_theta_o, eta, h, T);
+	    Spectrum T = exp(-sigma_a->eval(si, active) * (2 * cos_gamma_t / cos_theta_t));
+	    std::array<Spectrum, p_max + 1> ap = Ap(cos_theta_i, eta, h, T);
 
 	    // Compute $A_p$ PDF from individual $A_p$ terms
 	    std::array<Float, p_max + 1> ap_pdf;
@@ -147,29 +137,39 @@ private:
 	}
 
 	Float abs_cos_theta(const Vector3f &w) const{
-		return std::abs(w.z());
+		return std::abs(Frame3f::cos_theta(w));
 	}
 
 	inline Float radians(Float deg) const{
 		return (math::Pi<ScalarFloat>/180.f) * deg;
 	}
 
-	void tilt_scales(Float cos_theta_o, Float sin_theta_o, int p, Float &sin_theta_op, Float &cos_theta_op) const{
+	void tilt_scales(Float sin_theta_i, Float cos_theta_i, int p, Float &sin_theta_op, Float &cos_theta_op) const{
 		if (p == 0) {
-	        sin_theta_op = sin_theta_o * cos_2k_alpha[1] - cos_theta_o * sin_2k_alpha[1];
-	        cos_theta_op = cos_theta_o * cos_2k_alpha[1] + sin_theta_o * sin_2k_alpha[1];
+	        sin_theta_op = sin_theta_i * cos_2k_alpha[1] - cos_theta_i * sin_2k_alpha[1];
+	        cos_theta_op = cos_theta_i * cos_2k_alpha[1] + sin_theta_i * sin_2k_alpha[1];
 	    }
 	    else if (p == 1) {
-	        sin_theta_op = sin_theta_o * cos_2k_alpha[0] + cos_theta_o * sin_2k_alpha[0];
-	        cos_theta_op = cos_theta_o * cos_2k_alpha[0] - sin_theta_o * sin_2k_alpha[0];
+	        sin_theta_op = sin_theta_i * cos_2k_alpha[0] + cos_theta_i * sin_2k_alpha[0];
+	        cos_theta_op = cos_theta_i * cos_2k_alpha[0] - sin_theta_i * sin_2k_alpha[0];
 	    } else if (p == 2) {
-	        sin_theta_op = sin_theta_o * cos_2k_alpha[2] + cos_theta_o * sin_2k_alpha[2];
-	        cos_theta_op = cos_theta_o * cos_2k_alpha[2] - sin_theta_o * sin_2k_alpha[2];
+	        sin_theta_op = sin_theta_i * cos_2k_alpha[2] + cos_theta_i * sin_2k_alpha[2];
+	        cos_theta_op = cos_theta_i * cos_2k_alpha[2] - sin_theta_i * sin_2k_alpha[2];
 	    } else {
-	        sin_theta_op = sin_theta_o;
-	        cos_theta_op = cos_theta_o;
+	        sin_theta_op = sin_theta_i;
+	        cos_theta_op = cos_theta_i;
 	    }
-	}	
+	}
+
+	/*Spectrum sigma_a_from_reflectance(const Spectrum &c, Float beta_n) {
+	    Spectrum sigma_a;
+	    for (int i = 0; i < Spectrum::Size; ++i)
+	        sigma_a[i] = Sqr(std::log(c[i]) /
+	                         (5.969f - 0.215f * beta_n + 2.532f * Sqr(beta_n) -
+	                          10.73f * Pow<3>(beta_n) + 5.574f * Pow<4>(beta_n) +
+	                          0.245f * Pow<5>(beta_n)));
+	    return sigma_a;
+	}*/
 
 	MTS_DECLARE_CLASS()
 };

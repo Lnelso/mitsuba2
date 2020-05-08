@@ -8,7 +8,6 @@
 #include <mitsuba/render/texture.h>
 
 NAMESPACE_BEGIN(mitsuba)
-//Float h, Float eta, const Spectrum &sigma_a, Float beta_m, Float beta_n, Float alpha
 
 template <typename Float, typename Spectrum>
 HairBSDF<Float, Spectrum>::HairBSDF(const Properties &props) : Base(props) {
@@ -22,8 +21,13 @@ HairBSDF<Float, Spectrum>::HairBSDF(const Properties &props) : Base(props) {
     Assert(beta_n >= 0 && beta_n <= 1);
 
     Float alpha = props.float_("alpha", 2.f);
-    //sigma_a = props.color("sigma_a");
-    sigma_a = props.texture<Texture>("sigma_a", .5f);
+
+    sigma_a = props.texture<Texture>("absorption", 1.3f);
+    /*if(props.has_property("reflectance")){
+        //sigma_a = sigma_a_from_reflectance(props.<Texture>("reflectance", 1.3f); 
+    } else { 
+    }*/
+
     gamma_o = safe_asin(h);
     eta = props.float_("eta", 1.55f); //TODO: props.texture<Texture>("eta", 0.f); 
 
@@ -60,46 +64,45 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
                                                                                                         Mask active) const {
     MTS_MASKED_FUNCTION(ProfilerPhase::BSDFSample, active);
 
-    Vector3f wi = si.wi;
-    Vector3f wo(wi);
     BSDFSample3f bs = zero<BSDFSample3f>();
-
     Spectrum result(0.f);
 
-    Float sin_theta_o = wo.x();
-    Float cos_theta_o = safe_sqrt(1 - sqr(sin_theta_o));
-    Float phi_o = std::atan2(wo.z(), wo.y());
+    Float sin_theta_i = Frame3f::sin_theta(si.wi);
+    Float cos_theta_i = Frame3f::cos_theta(si.wi);
+    Float phi_i = std::atan2(si.wi.z(), si.wi.y());
+
+    active &= cos_theta_i > 0.f;
+    if (unlikely(none_or<false>(active)))
+        return { bs, result };
 
     // Derive four random samples from _u2_
     Point2f u[2] = {demux_float(sample2[0]), demux_float(sample2[1])}; //u2
 
     // Determine which term $p$ to sample for hair scattering
-    std::array<Float, p_max + 1> ap_pdf = compute_ap_pdf(cos_theta_o);
+    std::array<Float, p_max + 1> ap_pdf = compute_ap_pdf(cos_theta_i, si, active);
     int p;
     for (p = 0; p < p_max; ++p) {
         if (u[0][0] < ap_pdf[p]) break;
         u[0][0] -= ap_pdf[p];
     }
 
-
     // Rotate $\sin \thetao$ and $\cos \thetao$ to account for hair scale tilt
     Float sin_theta_op, cos_theta_op;
-    tilt_scales(cos_theta_o, sin_theta_o, p, sin_theta_op, cos_theta_op);
+    tilt_scales(sin_theta_i, cos_theta_i, p, sin_theta_op, cos_theta_op);
 
     // Sample $M_p$ to compute $\thetai$
     u[1][0] = std::max(u[1][0], Float(1e-5));
     Float cos_theta = 1 + v[p] * std::log(u[1][0] + (1 - u[1][0]) * std::exp(-2 / v[p]));
     Float sin_theta = safe_sqrt(1 - sqr(cos_theta));
     Float cos_phi = std::cos(2 * math::Pi<ScalarFloat> * u[1][1]);
-    Float sin_theta_i = -cos_theta * sin_theta_op + sin_theta * cos_phi * cos_theta_op;
-    Float cos_theta_i = safe_sqrt(1 - sqr(sin_theta_i));
 
-    std::cout << cos_theta << ", " << sin_theta << ", " << cos_phi << ", " << sin_theta_i << ", " << cos_theta_i << std::endl;
+    Float sin_theta_o = -cos_theta * sin_theta_op + sin_theta * cos_phi * cos_theta_op;
+    Float cos_theta_o = safe_sqrt(1 - sqr(sin_theta_o));
 
     // Sample $N_p$ to compute $\Delta\phi$
 
     // Compute $\gammat$ for refracted ray
-    Float etap = std::sqrt(eta * eta - sqr(sin_theta_o)) / cos_theta_o;
+    Float etap = std::sqrt(eta * eta - sqr(sin_theta_i)) / cos_theta_i;
     Float sin_gamma_t = h / etap;
     Float gamma_t = safe_asin(sin_gamma_t);
     Float dphi;
@@ -109,22 +112,23 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
         dphi = 2 * math::Pi<ScalarFloat> * u[0][1];
 
     // Compute _wi_ from sampled hair scattering angles
-    Float phi_i = phi_o + dphi;
-    wi = Vector3f(sin_theta_i, cos_theta_i * std::cos(phi_i), cos_theta_i * std::sin(phi_i)); //TODO:!!!!!!!!
+    Float phi_o = phi_i + dphi;
+    bs.wo = -normalize(Vector3f(sin_theta_o, cos_theta_o * std::cos(phi_o), cos_theta_o * std::sin(phi_o)));
 
     // Compute PDF for sampled hair scattering direction _wi_
     for (int p = 0; p < p_max; ++p) {
         // Compute $\sin \thetao$ and $\cos \thetao$ terms accounting for scales
         Float sin_theta_op, cos_theta_op;
-        tilt_scales(cos_theta_o, sin_theta_o, p, sin_theta_op, cos_theta_op);
+        tilt_scales(sin_theta_i, cos_theta_i, p, sin_theta_op, cos_theta_op);
 
         // Handle out-of-range $\cos \thetao$ from scale adjustment
         cos_theta_op = std::abs(cos_theta_op);
-        bs.pdf += warp::Mp(cos_theta_i, cos_theta_op, sin_theta_i, sin_theta_op, v[p]) *
+        bs.pdf += warp::Mp(cos_theta_o, cos_theta_op, sin_theta_o, sin_theta_op, v[p]) *
                            ap_pdf[p] * warp::Np(dphi, p, s, gamma_o, gamma_t);
     }
-    bs.pdf += warp::Mp(cos_theta_i, cos_theta_o, sin_theta_i, sin_theta_o, v[p_max]) *
+    bs.pdf += warp::Mp(cos_theta_o, cos_theta_i, sin_theta_o, sin_theta_i, v[p_max]) *
                        ap_pdf[p_max] * (1 / (2 * math::Pi<ScalarFloat>));
+    bs.eta = eta;
 
     return {bs, eval(ctx, si, bs.wo, active)};
 
@@ -135,22 +139,19 @@ Spectrum HairBSDF<Float, Spectrum>::eval(const BSDFContext &ctx, const SurfaceIn
                         const Vector3f &wo, Mask active) const {
     MTS_MASKED_FUNCTION(ProfilerPhase::BSDFEvaluate, active);
 
-    //Float cos_theta_i = Frame3f::cos_theta(si.wi),
-    //      cos_theta_o = Frame3f::cos_theta(wo);
-
-    //active &= cos_theta_i > 0.f && cos_theta_o > 0.f;
-
-    Vector3f wi = si.wi;
-
     // Compute hair coordinate system terms related to _wo_
-    Float sin_theta_o = wo.x();
-    Float cos_theta_o = safe_sqrt(1 - sqr(sin_theta_o));
-    Float phi_o = std::atan2(wo.z(), wo.y());
+    Float sin_theta_i = Frame3f::sin_theta(si.wi);
+    Float cos_theta_i = Frame3f::cos_theta(si.wi);
+    Float phi_i = std::atan2(si.wi.z(), si.wi.y());
 
     // Compute hair coordinate system terms related to _wi_
-    Float sin_theta_i = wi.x();
-    Float cos_theta_i = safe_sqrt(1 - sqr(sin_theta_i));
-    Float phi_i = std::atan2(wi.z(), wi.y());
+    Float sin_theta_o = Frame3f::sin_theta(wo);
+    Float cos_theta_o = Frame3f::cos_theta(wo);
+    Float phi_o = std::atan2(wo.z(), wo.y());
+
+    active &= cos_theta_i > 0.f && cos_theta_o > 0.f;
+    if (unlikely(none_or<false>(active)))
+        return 0.f;
 
     // Compute $\cos \thetat$ for refracted ray
     Float sin_theta_t = sin_theta_o / eta;
@@ -163,7 +164,7 @@ Spectrum HairBSDF<Float, Spectrum>::eval(const BSDFContext &ctx, const SurfaceIn
     Float gamma_t = safe_asin(sin_gamma_t);
 
     // Compute the transmittance _T_ of a single path through the cylinder
-    Spectrum T = exp(-sigma_a * (2 * cos_gamma_t / cos_theta_t));
+    Spectrum T = exp(-sigma_a->eval(si, active) * (2 * cos_gamma_t / cos_theta_t));
 
     // Evaluate hair BSDF
     Float phi = phi_i - phi_o;
@@ -172,7 +173,7 @@ Spectrum HairBSDF<Float, Spectrum>::eval(const BSDFContext &ctx, const SurfaceIn
     for (int p = 0; p < p_max; ++p) {
         // Compute $\sin \thetao$ and $\cos \thetao$ terms accounting for scales
         Float sin_theta_op, cos_theta_op;
-        tilt_scales(cos_theta_o, sin_theta_o, p, sin_theta_op, cos_theta_op);
+        tilt_scales(sin_theta_o, cos_theta_o, p, sin_theta_op, cos_theta_op);
 
         // Handle out-of-range $\cos \thetao$ from scale adjustment
         cos_theta_op = std::abs(cos_theta_op);
@@ -183,11 +184,10 @@ Spectrum HairBSDF<Float, Spectrum>::eval(const BSDFContext &ctx, const SurfaceIn
     // Compute contribution of remaining terms after _pMax_
     fsum += warp::Mp(cos_theta_i, cos_theta_o, sin_theta_i, sin_theta_o, v[p_max]) * ap[p_max] /
                     (2.f * math::Pi<ScalarFloat>);
-    if (abs_cos_theta(wi) > 0) fsum /= abs_cos_theta(wi);
+    if (abs_cos_theta(wo) > 0) fsum /= abs_cos_theta(wo);
     Assert(!std::isinf(fsum.y()) && !std::isnan(fsum.y()));
 
-    return fsum;
-    
+    return fsum;    
 }
 
 template <typename Float, typename Spectrum>
@@ -195,20 +195,17 @@ Float HairBSDF<Float, Spectrum>::pdf(const BSDFContext &ctx, const SurfaceIntera
                     const Vector3f &wo, Mask active) const {
     MTS_MASKED_FUNCTION(ProfilerPhase::BSDFEvaluate, active);
 
-    //Float cos_theta_i = Frame3f::cos_theta(si.wi),
-    //      cos_theta_o = Frame3f::cos_theta(wo);
-
     Vector3f wi = si.wi;
 
-    // Compute hair coordinate system terms related to _wo_
-    Float sin_theta_o = wo.x();
-    Float cos_theta_o = safe_sqrt(1 - sqr(sin_theta_o));
-    Float phi_o = std::atan2(wo.z(), wo.y());
-
     // Compute hair coordinate system terms related to _wi_
-    Float sin_theta_i = wi.x();
-    Float cos_theta_i = safe_sqrt(1 - sqr(sin_theta_i));
+    Float sin_theta_i = Frame3f::sin_theta(wi);
+    Float cos_theta_i = Frame3f::cos_theta(wi);
     Float phi_i = std::atan2(wi.z(), wi.y());
+
+    // Compute hair coordinate system terms related to _wo_
+    Float sin_theta_o = Frame3f::sin_theta(wo);
+    Float cos_theta_o = Frame3f::cos_theta(wo);
+    Float phi_o = std::atan2(wo.z(), wo.y());
 
     // Compute $\gammat$ for refracted ray
     Float etap = std::sqrt(eta * eta - sqr(sin_theta_o)) / cos_theta_o;
@@ -216,7 +213,7 @@ Float HairBSDF<Float, Spectrum>::pdf(const BSDFContext &ctx, const SurfaceIntera
     Float gamma_t = safe_asin(sin_gamma_t);
 
     // Compute PDF for $A_p$ terms
-    std::array<Float, p_max + 1> ap_pdf = compute_ap_pdf(cos_theta_o);
+    std::array<Float, p_max + 1> ap_pdf = compute_ap_pdf(cos_theta_o, si, active);
 
     // Compute PDF sum for hair scattering events
     Float phi = phi_i - phi_o;
@@ -224,15 +221,17 @@ Float HairBSDF<Float, Spectrum>::pdf(const BSDFContext &ctx, const SurfaceIntera
     for (int p = 0; p < p_max; ++p) {
         // Compute $\sin \thetao$ and $\cos \thetao$ terms accounting for scales
         Float sin_theta_op, cos_theta_op;
-        tilt_scales(cos_theta_o, sin_theta_o, p, sin_theta_op, cos_theta_op);
+        tilt_scales(sin_theta_o, cos_theta_o, p, sin_theta_op, cos_theta_op);
 
         // Handle out-of-range $\cos \thetao$ from scale adjustment
         cos_theta_op = std::abs(cos_theta_op);
         pdf += warp::Mp(cos_theta_i, cos_theta_op, sin_theta_i, sin_theta_op, v[p]) *
                         ap_pdf[p] * warp::Np(phi, p, s, gamma_o, gamma_t);
     }
+
     pdf += warp::Mp(cos_theta_i, cos_theta_o, sin_theta_i, sin_theta_o, v[p_max]) *
                     ap_pdf[p_max] * (1 / (2 * math::Pi<ScalarFloat>));
+
     return pdf;
 }
 
