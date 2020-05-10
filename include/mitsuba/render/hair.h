@@ -28,6 +28,8 @@ public:
 
     HairBSDF(const Properties &props);
 
+    enum Mode_sigma_a { Absorption, Reflectance, Concentration};
+
     std::pair<BSDFSample3f, Spectrum> sample(const BSDFContext&,
                                              const SurfaceInteraction3f&,
                                              Float, 
@@ -42,7 +44,11 @@ public:
 
 private:
     Float h, gamma_o, eta;
+    Mode_sigma_a mode;
     ref<Texture> sigma_a;
+    ref<Texture> sigma_a_reflectance;
+    Float ce, cp;
+
     Float beta_m, beta_n;
     Float v[p_max + 1];
     Float s;
@@ -51,19 +57,19 @@ private:
     MTS_INLINE Float sqr(Float v) const { return v * v; }
 
 	template <int n>
-	Float pow(Float v) {
+	Float pow(Float v) const{
 	    static_assert(n > 0, "Power can't be negative");
 	    Float n2 = pow<n / 2>(v);
 	    return n2 * n2 * pow<n & 1>(v);
 	}
 
 	template <>
-	MTS_INLINE Float pow<1>(Float v) {
+	MTS_INLINE Float pow<1>(Float v) const{
 	    return v;
 	}
 
 	template <>
-	MTS_INLINE Float pow<0>(__attribute__((unused)) Float v) {
+	MTS_INLINE Float pow<0>(__attribute__((unused)) Float v) const{
 	    return 1;
 	}
 
@@ -94,7 +100,6 @@ private:
 	    // Compute $p=0$ attenuation at initial cylinder intersection
 	    Float cos_gamma_o = safe_sqrt(1 - h * h);
 	    Float cos_theta = cos_theta_i * cos_gamma_o;
-	    //Float f = FrDielectric(cosTheta, 1.f, eta);
 	    auto res = fresnel(cos_theta, eta); //F, cos_theta_t, eta_it, eta_ti
 	    Float f = std::get<0>(res);
 	    ap[0] = f;
@@ -124,7 +129,8 @@ private:
 	    Float cos_gamma_t = safe_sqrt(1 - sqr(sin_gamma_t));
 
 	    // Compute the transmittance _T_ of a single path through the cylinder
-	    Spectrum T = exp(-sigma_a->eval(si, active) * (2 * cos_gamma_t / cos_theta_t));
+	    Spectrum T = exp(-evaluate_sigma_a(si, active) * (2 * cos_gamma_t / cos_theta_t));
+
 	    std::array<Spectrum, p_max + 1> ap = Ap(cos_theta_i, eta, h, T);
 
 	    // Compute $A_p$ PDF from individual $A_p$ terms
@@ -161,15 +167,38 @@ private:
 	    }
 	}
 
-	/*Spectrum sigma_a_from_reflectance(const Spectrum &c, Float beta_n) {
+	void get_angles(const Vector3f &w, Float &sin_theta, Float &cos_theta, Float &phi) const{
+		sin_theta = -w.z();//Frame3f::sin_theta(w);
+    	cos_theta = sqrt(1 - sqr(w.x()));//Frame3f::cos_theta(w);
+    	phi = std::atan2(-w.z(), w.y());
+	}
+
+	Spectrum sigma_a_from_reflectance(const Spectrum &c, Float beta_n) const{
 	    Spectrum sigma_a;
-	    for (int i = 0; i < Spectrum::Size; ++i)
-	        sigma_a[i] = Sqr(std::log(c[i]) /
-	                         (5.969f - 0.215f * beta_n + 2.532f * Sqr(beta_n) -
-	                          10.73f * Pow<3>(beta_n) + 5.574f * Pow<4>(beta_n) +
-	                          0.245f * Pow<5>(beta_n)));
+	    for (size_t i = 0; i < Spectrum::Size; ++i)
+	        sigma_a[i] = sqr(std::log(c[i]) /
+	                         (5.969f - 0.215f * beta_n + 2.532f * sqr(beta_n) -
+	                          10.73f * pow<3>(beta_n) + 5.574f * pow<4>(beta_n) +
+	                          0.245f * pow<5>(beta_n)));
 	    return sigma_a;
-	}*/
+	}
+
+	Spectrum sigma_a_from_concentration(Float ce, Float cp) const{
+	    Float sigma_a[3];
+	    Float eumelanin_sigma_a[3] = {0.419f, 0.697f, 1.37f};
+	    Float pheomelanin_sigma_a[3] = {0.187f, 0.4f, 1.05f};
+	    for (size_t i = 0; i < 3; ++i)
+	        sigma_a[i] = (ce * eumelanin_sigma_a[i] + cp * pheomelanin_sigma_a[i]);
+	    return Spectrum(sigma_a[0], sigma_a[1], sigma_a[2]);
+	}
+
+	Spectrum evaluate_sigma_a(const SurfaceInteraction3f &si, Mask active) const{
+		switch(mode){
+			case Absorption: return sigma_a->eval(si, active); break;
+			case Reflectance: return sigma_a_from_reflectance(sigma_a->eval(si, active), beta_n); break;
+			case Concentration: return sigma_a_from_concentration(ce, cp); break;
+		}
+	}
 
 	MTS_DECLARE_CLASS()
 };
