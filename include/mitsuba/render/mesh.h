@@ -6,6 +6,7 @@
 #include <mitsuba/core/transform.h>
 #include <mitsuba/core/distr_1d.h>
 #include <tbb/spin_mutex.h>
+#include <unordered_map>
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -13,7 +14,7 @@ template <typename Float, typename Spectrum>
 class MTS_EXPORT_RENDER Mesh : public Shape<Float, Spectrum> {
 public:
     MTS_IMPORT_TYPES()
-    MTS_IMPORT_BASE(Shape, m_mesh)
+    MTS_IMPORT_BASE(Shape, m_mesh, set_children, m_emitter)
 
     using InputFloat = float;
     using InputPoint3f  = Point<InputFloat, 3>;
@@ -32,6 +33,12 @@ public:
          Struct *vertex_struct, ScalarSize vertex_count,
          Struct *face_struct,   ScalarSize face_count);
 
+    /// Create a new mesh from a blender mesh
+    Mesh(const std::string &name,
+        uintptr_t loop_tri_count, uintptr_t loop_tri_ptr,
+        uintptr_t loop_ptr, uintptr_t vertex_count, uintptr_t vertex_ptr,
+        uintptr_t poly_ptr, uintptr_t uv_ptr, uintptr_t col_ptr,
+        short mat_nr, const ScalarMatrix4f &to_world);
     // =========================================================================
     //! @{ \name Accessors (vertices, faces, normals, etc)
     // =========================================================================
@@ -186,8 +193,8 @@ public:
     /// @}
     // =========================================================================
 
-    /// Export mesh using the file format implemented by the subclass
-    virtual void write(Stream *stream) const;
+    /// Export mesh as a binary PLY file
+    void write_ply(Stream *stream) const;
 
     /// Compute smooth vertex normals and replace the current normal values
     void recompute_vertex_normals();
@@ -268,10 +275,6 @@ public:
         return { active, u, v, t };
     }
 
-    void traverse(TraversalCallback *callback) override;
-
-    void parameters_changed() override;
-
 #if defined(MTS_ENABLE_EMBREE)
     /// Return the Embree version of this shape
     virtual RTCGeometry embree_geometry(RTCDevice device) const override;
@@ -280,6 +283,8 @@ public:
 #if defined(MTS_ENABLE_OPTIX)
     /// Return the OptiX version of this shape
     virtual RTgeometrytriangles optix_geometry(RTcontext context) override;
+    void traverse(TraversalCallback *callback) override;
+    void parameters_changed(const std::vector<std::string> &/*keys*/ = {}) override;
 #endif
 
     /// @}

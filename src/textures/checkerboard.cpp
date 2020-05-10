@@ -19,7 +19,8 @@ Checkerboard texture (:monosp:`checkerboard`)
    - Color values for the two differently-colored patches (Default: 0.4 and 0.2)
  * - to_uv
    - |transform|
-   - Specifies an optional uv transformation.  (Default: none, i.e. emitter space = world space)
+   - Specifies an optional 3x3 UV transformation matrix. A 4x4 matrix can also be provided.
+     In that case, the last row and columns will be ignored.  (Default: none)
 
 This plugin provides a simple procedural checkerboard texture with customizable colors.
 
@@ -92,6 +93,18 @@ public:
         callback->put_parameter("transform", m_transform);
         callback->put_object("color0", m_color0.get());
         callback->put_object("color1", m_color1.get());
+    }
+
+    bool is_spatially_varying() const override { return true; }
+
+    std::string to_string() const override {
+        std::ostringstream oss;
+        oss << "Checkerboard[" << std::endl
+            << "  color0 = " << string::indent(m_color0) << std::endl
+            << "  color1 = " << string::indent(m_color1) << std::endl
+            << "  transform = " << string::indent(m_transform) << std::endl
+            << "]";
+        return oss.str();
     }
 
     MTS_DECLARE_CLASS()
