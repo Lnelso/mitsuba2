@@ -98,9 +98,10 @@ public:
         }
 
         m_bbox.expand(m_vertices[m_vertices.size() - 1]);
-        Vector extra = (m_bbox.extents() + max_radius);
+
+        /*Vector extra = (m_bbox.extents() + max_radius);
         m_bbox.min -= extra;
-        m_bbox.max += extra;
+        m_bbox.max += extra;*/
 
         /*
         const Float eps = MTS_KD_AABB_EPSILON;
@@ -120,10 +121,11 @@ public:
 
         build();
 
-        //TODO: logging
-
         for (Size i=0; i<m_index_count; ++i)
             m_indices[i] = m_seg_index[m_indices[i]];
+
+        //std::vector<Index>().swap(m_seg_index);
+        std::cout << "end of build" << std::endl;
     }
 
     MTS_INLINE const std::vector<Point> &vertices() const {
@@ -150,7 +152,7 @@ public:
         return m_vertices.size();
     }
 
-    template <bool ShadowRay>
+    template <bool ShadowRay = false>
     MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray,
                                                     Float *cache,
                                                     Mask active) const {
@@ -418,6 +420,9 @@ public:
 
         Float lambda = (c2*c2/(4*c0) + c3*c3/(4*c1) - c4)/(c0*c1);
 
+        //std::cout << "c4: " << c4 << std::endl;
+        //std::cout << "lambda: " << lambda << std::endl;
+
         Float alpha0 = -c2/(2*c0),
                 beta0 = -c3/(2*c1);
 
@@ -445,6 +450,8 @@ public:
         Float ellipse_lengths[2];
         
         BoundingBox aabb;
+        //std::cout << "Epsilon: " << math::Epsilon<Float> << std::endl;
+        //std::cout << "radius * (1+epsilon): " << m_radius_per_vertex[iv] * (1.0f + math::Epsilon<Float>) << std::endl;
         if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, m_radius_per_vertex[iv] * (1 + math::Epsilon<Scalar>),
                                ellipse_center, ellipse_axes, ellipse_lengths)) {
             return aabb;
@@ -505,6 +512,7 @@ public:
     }
 
     BoundingBox bbox(Index index) const {
+        //std::cout << "bbox" << std::endl;
         Index iv = m_seg_index[index];
         Point center;
         Vector axes[2];
@@ -632,6 +640,8 @@ public:
             A = squared_norm(proj_direction);
             B = 2 * dot(proj_origin, proj_direction);
             C = squared_norm(proj_origin) - m_radius_per_vertex[prim_index]*m_radius_per_vertex[prim_index];
+            //std::cout << "radius^2 = " << m_radius_per_vertex[prim_index]*m_radius_per_vertex[prim_index] << std::endl;
+            std::cout << "C: " << C << std::endl;
         } else{
             Point p_circle_v1 = v1 + m_radius_per_vertex[prim_index] * normalize(proj_origin);
             Point p_circle_v2 = v2 + m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
@@ -737,7 +747,7 @@ MTS_IMPLEMENT_CLASS_VARIANT(HairKDTree, TShapeKDTree)
 template <typename Float, typename Spectrum>
 class HairShape final : public Shape<Float, Spectrum> {
 public:
-    MTS_IMPORT_BASE(Shape)
+    MTS_IMPORT_BASE(Shape, m_tree)
     MTS_IMPORT_TYPES(HairKDTree)
 
     using typename Base::ScalarSize;
@@ -789,10 +799,10 @@ public:
         size_t n_degenerate = 0, n_skipped = 0;
         ScalarPoint3f p, last_p(0.0f);
         bool ignore = false;
-
         if (binary_format) {
             unsigned int vertex_count;
             binary_stream->read((void *)&vertex_count, sizeof(vertex_count));
+            std::cout << "Binary format - vertex count: " << vertex_count << std::endl;
             Log(LogLevel::Info, "Loading %zd hair vertices ..", vertex_count);
             vertices.reserve(vertex_count);
             vertex_starts_fiber.reserve(vertex_count);
@@ -946,6 +956,7 @@ public:
         vertex_starts_fiber.push_back(true);
 
         m_kdtree = new HairKDTree(props, vertices, vertex_starts_fiber, radius_per_vertex, max_radius, props.has_property("radius"));
+        m_tree = true;
     }
 
     const std::vector<ScalarPoint3f> &vertices() const{

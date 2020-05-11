@@ -255,6 +255,8 @@ public:
     /// Is this shape a triangle mesh?
     bool is_mesh() const { return m_mesh; }
 
+    bool has_own_kdtree() const { return m_tree; }
+
     /// Does the surface of this shape mark a medium transition?
     bool is_medium_transition() const { return m_interior_medium.get() != nullptr ||
                                                m_exterior_medium.get() != nullptr; }
@@ -330,6 +332,7 @@ protected:
     void set_children();
 protected:
     bool m_mesh = false;
+    bool m_tree = false;
     ref<BSDF> m_bsdf;
     ref<Emitter> m_emitter;
     ref<Sensor> m_sensor;

@@ -63,15 +63,19 @@ MTS_VARIANT void ShapeKDTree<Float, Spectrum>::build() {
 
 MTS_VARIANT void ShapeKDTree<Float, Spectrum>::add_shape(Shape *shape) {
     Assert(!ready());
-    m_primitive_map.push_back(m_primitive_map.back() +
-                              shape->primitive_count());
+
+    if(shape->has_own_kdtree()) 
+       m_primitive_map.push_back(m_primitive_map.back() + 1);
+    else
+      m_primitive_map.push_back(m_primitive_map.back() + shape->primitive_count());
+    
     m_shapes.push_back(shape);
     m_bbox.expand(shape->bbox());
 }
 
 MTS_VARIANT std::string ShapeKDTree<Float, Spectrum>::to_string() const {
     std::ostringstream oss;
-    oss << "ShapeKDTreeKDTree[" << std::endl
+    oss << "ShapeKDTree[" << std::endl
         << "  shapes = [" << std::endl;
     for (auto shape : m_shapes)
         oss << "    " << string::indent(shape->to_string(), 4)

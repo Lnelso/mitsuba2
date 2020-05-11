@@ -77,6 +77,20 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
 
     Float sin_theta_i, cos_theta_i, phi_i;
     get_angles(si.wi, sin_theta_i, cos_theta_i, phi_i);
+    //std::cout << "sin wi" << std::endl;
+    //std::cout << Frame3f::sin_theta(si.wi)<< std::endl;
+
+    /*
+    Vector3f x_axis = Vector3f(1, 0, 0);
+    Vector3f y_axis = Vector3f(0, 1, 0);
+    Vector3f z_axis = Vector3f(0, 0, 1);
+
+    std::cout << "x axis" << std::endl;
+    print_basis(x_axis);
+    std::cout << "y axis" << std::endl;
+    print_basis(y_axis);
+    std::cout << "z axis" << std::endl;
+    print_basis(z_axis);*/
 
     /*std::cout << "sin_theta_i: " << sin_theta_i << std::endl;
     std::cout << "cos_theta_i: " << cos_theta_i << std::endl;
@@ -124,7 +138,7 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
 
     // Compute _wi_ from sampled hair scattering angles
     Float phi_o = phi_i + dphi;
-    bs.wo = -normalize(Vector3f(sin_theta_o, cos_theta_o * std::cos(phi_o), cos_theta_o * std::sin(phi_o)));
+    bs.wo = normalize(Vector3f(sin_theta_o, cos_theta_o * std::cos(phi_o), cos_theta_o * std::sin(phi_o)));
 
     // Compute PDF for sampled hair scattering direction _wi_
     for (int p = 0; p < p_max; ++p) {
@@ -141,7 +155,7 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
                        ap_pdf[p_max] * (1.0f / (2 * math::Pi<ScalarFloat>));
     bs.eta = eta;
 
-    return {bs, eval(ctx, si, bs.wo, active)};
+    return {bs, eval(ctx, si, -bs.wo, active)};
 
 }
 

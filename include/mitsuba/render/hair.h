@@ -168,9 +168,18 @@ private:
 	}
 
 	void get_angles(const Vector3f &w, Float &sin_theta, Float &cos_theta, Float &phi) const{
-		sin_theta = -w.z();//Frame3f::sin_theta(w);
-    	cos_theta = sqrt(1 - sqr(w.x()));//Frame3f::cos_theta(w);
-    	phi = std::atan2(-w.z(), w.y());
+		sin_theta = w.x();//Frame3f::sin_theta(w);
+    	cos_theta = sqrt(1 - sqr(sin_theta)); //Frame3f::cos_theta(w);//Frame3f::sin_theta(w); //
+    	phi = std::atan2(w.z(), w.y());
+	}
+
+	void print_basis(Vector3f w) const{
+		Float sin_theta, cos_theta, phi;
+		get_angles(w, sin_theta, cos_theta, phi);
+	    
+	    std::cout << "sin_theta: " << sin_theta << std::endl;
+	    std::cout << "cos_theta: " << cos_theta << std::endl;
+	    std::cout << "phi: " << phi << std::endl;
 	}
 
 	Spectrum sigma_a_from_reflectance(const Spectrum &c, Float beta_n) const{
