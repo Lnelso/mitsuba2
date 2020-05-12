@@ -97,25 +97,20 @@ public:
         for (size_t i=0; i<m_vertices.size()-1; i++) {
             if (m_vertex_starts_fiber[i])
                 m_hair_count++;
-            if (!m_vertex_starts_fiber[i+1]){
+            if (!m_vertex_starts_fiber[i+1])
                 m_seg_index.push_back((Index) i);
-                m_bbox.expand(bbox(i));
-            }
         }
 
         m_segment_count = m_seg_index.size();
 
-        /*Vector extra = (m_bbox.extents() + max_radius);
-        m_bbox.min -= extra;
-        m_bbox.max += extra;
-        */   
+        Log(Info, "Building a SAH kd-tree (%i primitives) ..", m_segment_count);
+        for(size_t i = 0; i < m_segment_count; ++i)
+            m_bbox.expand(bbox(i));
         
         const Float eps = MTS_KD_AABB_EPSILON;
         m_bbox.min -= m_bbox.extents() * eps + Vector3f(eps);
         m_bbox.max += m_bbox.extents() * eps + Vector3f(eps);
-        
-        //TODO: logging
-        
+            
         set_stop_primitives(1);
         set_exact_primitive_threshold(16384);
         set_clip_primitives(true);
@@ -613,7 +608,7 @@ public:
 #endif
 
     MTS_INLINE Size primitive_count() const {
-        return (Size) m_seg_index.size();
+        return (Size) m_segment_count;
     }
 //http://lousodrome.net/blog/light/2017/01/03/intersection-of-a-ray-and-a-cone/
     MTS_INLINE std::pair<Mask, Float> intersect_prim(Index prim_index, const Ray3f &ray,
@@ -995,7 +990,7 @@ public:
         frame.t = cross(frame.n, frame.s);
 
         const Vector3f local = frame.to_local(rel_hit_point);
-        
+
         si.p += si.n * (m_kdtree->radius(iv) - std::sqrt(local.y()*local.y()+local.z()*local.z()));
         si.sh_frame.n = si.n;
         auto uv = coordinate_system(si.sh_frame.n);
