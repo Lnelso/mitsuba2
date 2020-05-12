@@ -21,7 +21,7 @@
 #include <fstream>
 
 
-#define MTS_HAIR_USE_FANCY_CLIPPING 0
+#define MTS_HAIR_USE_FANCY_CLIPPING 1
 
 #define MTS_KD_AABB_EPSILON 1e-3f
 
@@ -97,15 +97,13 @@ public:
         for (size_t i=0; i<m_vertices.size()-1; i++) {
             if (m_vertex_starts_fiber[i])
                 m_hair_count++;
-            if (!m_vertex_starts_fiber[i+1])
+            if (!m_vertex_starts_fiber[i+1]){
                 m_seg_index.push_back((Index) i);
+                m_bbox.expand(bbox(i));
+            }
         }
 
         m_segment_count = m_seg_index.size();
-
-        for(size_t i = 0; i < m_segment_count; ++i)
-            m_bbox.expand(bbox(i));
-
 
         /*Vector extra = (m_bbox.extents() + max_radius);
         m_bbox.min -= extra;
@@ -113,13 +111,11 @@ public:
         */   
         
         const Float eps = MTS_KD_AABB_EPSILON;
-
         m_bbox.min -= m_bbox.extents() * eps + Vector3f(eps);
         m_bbox.max += m_bbox.extents() * eps + Vector3f(eps);
         
-
         //TODO: logging
-
+        
         set_stop_primitives(1);
         set_exact_primitive_threshold(16384);
         set_clip_primitives(true);
@@ -426,9 +422,6 @@ public:
 
         Float lambda = (c2*c2/(4*c0) + c3*c3/(4*c1) - c4)/(c0*c1);
 
-        //std::cout << "c4: " << c4 << std::endl;
-        //std::cout << "lambda: " << lambda << std::endl;
-
         Float alpha0 = -c2/(2*c0),
                 beta0 = -c3/(2*c1);
 
@@ -518,7 +511,6 @@ public:
     }
 
     BoundingBox bbox(Index index) const {
-        //std::cout << "bbox" << std::endl;
         Index iv = m_seg_index[index];
         Point center;
         Vector axes[2];
@@ -673,10 +665,10 @@ public:
         near_t = std::get<1>(coeffs);
         far_t = std::get<2>(coeffs);
 
-        if (!std::get<0>(coeffs)) //ToDeleteLater: 182 rays came in this condition 
+        if (!std::get<0>(coeffs))
             return std::make_pair(false, t);
 
-        if (!(near_t <= ray.maxt && far_t >= ray.mint)) //ToDeleteLater: 266 rays came in this condition 
+        if (!(near_t <= ray.maxt && far_t >= ray.mint))
             return std::make_pair(false, t);
 
         Point point_near = ray_o + ray_d * near_t;
@@ -689,18 +681,16 @@ public:
         if (dot(point_near - v1, n1) >= 0 && dot(point_near - v2, n2) <= 0 && near_t >= ray.mint) {
             p = Point3f(ray_o + ray_d * near_t);
             t = (Float) near_t;
-        } else if (dot(point_far - v1, n1) >= 0 && dot(point_far - v2, n2) <= 0) { //ToDeleteLater: No ray came in this condition 
+        } else if (dot(point_far - v1, n1) >= 0 && dot(point_far - v2, n2) <= 0) {
             if (far_t > ray.maxt)
                 return std::make_pair(false, t);
             p = Point3f(ray_o + ray_d * far_t);
             t = (Float) far_t;
-        } else { //ToDeleteLater: No ray came in this condition 
+        } else { 
             return std::make_pair(false, t);
         }
 
-
-        if (cache) {//ToDeleteLater: 274 rays came in this condition 
-            std::cout << "store in cache" << std::endl;
+        if (cache) {
             cache[1] = prim_index;
             cache[2] = p.x();
             cache[3] = p.y();
@@ -977,15 +967,18 @@ public:
         return m_kdtree->template ray_intersect<false>(ray, cache, active);
     }
 
+    Mask ray_test(const Ray3f &ray, Mask active = true) const override{
+        auto [hit, hit_t] = m_kdtree->template ray_intersect<true>(ray, nullptr, active);
+        return hit;
+    }
+
     void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
         ENOKI_MARK_USED(active);
-        //std::cout << "fill_surface_interaction" << std::endl;
 
         si.uv = Point2f(0.f,0.f);
         si.dp_du = ScalarVector3f(0.f);
         si.dp_dv = ScalarVector3f(0.f);
 
-        std::cout << "retrieve from" << std::endl;
         Index iv = cache[1];
         si.p[0] = cache[2];
         si.p[1] = cache[3];
@@ -994,20 +987,16 @@ public:
         const Vector3f axis = m_kdtree->tangent(iv);
         si.shape = this;
 
-        const Vector3f rel_hit_point = si.p - m_kdtree->first_vertex(iv);
-        
+        const Vector3f rel_hit_point = si.p - m_kdtree->first_vertex(iv);        
         si.n = normalize(rel_hit_point - dot(axis, rel_hit_point) * axis);
 
         Frame3f frame = Frame3f(si.n);
         frame.s = axis;
         frame.t = cross(frame.n, frame.s);
 
-        //std::cout << frame << std::endl;
-
         const Vector3f local = frame.to_local(rel_hit_point);
-
+        
         si.p += si.n * (m_kdtree->radius(iv) - std::sqrt(local.y()*local.y()+local.z()*local.z()));
-
         si.sh_frame.n = si.n;
         auto uv = coordinate_system(si.sh_frame.n);
         si.dp_du = uv.first;
