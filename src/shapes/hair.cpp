@@ -21,7 +21,12 @@
 #include <fstream>
 
 
-#define MTS_HAIR_USE_FANCY_CLIPPING 1
+#define MTS_HAIR_USE_FANCY_CLIPPING 0
+
+#define MTS_KD_AABB_EPSILON 1e-3f
+
+#define HAIR_EPS 1e-4f
+
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -90,27 +95,28 @@ public:
         m_cylinder = cylinder;
 
         for (size_t i=0; i<m_vertices.size()-1; i++) {
-            m_bbox.expand(m_vertices[i]);
             if (m_vertex_starts_fiber[i])
                 m_hair_count++;
             if (!m_vertex_starts_fiber[i+1])
                 m_seg_index.push_back((Index) i);
         }
 
-        m_bbox.expand(m_vertices[m_vertices.size() - 1]);
+        m_segment_count = m_seg_index.size();
+
+        for(size_t i = 0; i < m_segment_count; ++i)
+            m_bbox.expand(bbox(i));
+
 
         /*Vector extra = (m_bbox.extents() + max_radius);
         m_bbox.min -= extra;
-        m_bbox.max += extra;*/
-
-        /*
+        m_bbox.max += extra;
+        */   
+        
         const Float eps = MTS_KD_AABB_EPSILON;
 
-        m_bbox.min -= (m_bbox.max-m_bbox.min) * eps + VectorType(eps);
-        m_bbox.max += (m_bbox.max-m_bbox.min) * eps + VectorType(eps);
-         */
-
-        m_segment_count = m_seg_index.size();
+        m_bbox.min -= m_bbox.extents() * eps + Vector3f(eps);
+        m_bbox.max += m_bbox.extents() * eps + Vector3f(eps);
+        
 
         //TODO: logging
 
@@ -125,7 +131,6 @@ public:
             m_indices[i] = m_seg_index[m_indices[i]];
 
         //std::vector<Index>().swap(m_seg_index);
-        std::cout << "end of build" << std::endl;
     }
 
     MTS_INLINE const std::vector<Point> &vertices() const {
@@ -227,6 +232,7 @@ public:
             } else if (node->primitive_count() > 0) { // Arrived at a leaf node
                 Index prim_start = node->primitive_offset();
                 Index prim_end = prim_start + node->primitive_count();
+
                 for (Index i = prim_start; i < prim_end; i++) {
                     Index prim_index = m_indices[i];
 
@@ -392,13 +398,13 @@ public:
             Point cyl_pt, Vector cyl_d, Float radius, Point &center,
             Vector *axes, Float *lengths) const {
         
-        if (abs_dot(plane_nrml, cyl_d) < math::Epsilon<Scalar>)
+        if (abs_dot(plane_nrml, cyl_d) < HAIR_EPS)
             return false;
 
         Vector B, A = cyl_d - dot(cyl_d, plane_nrml)*plane_nrml;
 
         Float length = norm(A);
-        if (length > math::Epsilon<Scalar> && plane_nrml != cyl_d) {
+        if (length > HAIR_EPS && plane_nrml != cyl_d) {
             A /= length;
             B = cross(plane_nrml, A);
         } else {
@@ -452,7 +458,7 @@ public:
         BoundingBox aabb;
         //std::cout << "Epsilon: " << math::Epsilon<Float> << std::endl;
         //std::cout << "radius * (1+epsilon): " << m_radius_per_vertex[iv] * (1.0f + math::Epsilon<Float>) << std::endl;
-        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, m_radius_per_vertex[iv] * (1 + math::Epsilon<Scalar>),
+        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, m_radius_per_vertex[iv] * (1 + HAIR_EPS),
                                ellipse_center, ellipse_axes, ellipse_lengths)) {
             return aabb;
         }
@@ -519,7 +525,7 @@ public:
         Float lengths[2];
 
         bool success = intersect_cyl_plane(first_vertex(iv), first_miter_normal(iv),
-                                         first_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-math::Epsilon<Scalar>), center, axes, lengths);
+                                         first_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-HAIR_EPS), center, axes, lengths);
         Assert(success);
 
         BoundingBox result;
@@ -531,7 +537,7 @@ public:
         }
 
         success = intersect_cyl_plane(second_vertex(iv), second_miter_normal(iv),
-                                    second_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-math::Epsilon<Scalar>), center, axes, lengths);
+                                    second_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-HAIR_EPS), center, axes, lengths);
         Assert(success);
 
         axes[0] *= lengths[0]; axes[1] *= lengths[1];
@@ -634,14 +640,12 @@ public:
         Vector proj_origin = rel_origin - dot(axis, rel_origin) * axis;
 
         Float A, B, C;
-        if(m_cylinder || std::abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < math::Epsilon<Scalar>){
+        if(m_cylinder || std::abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < HAIR_EPS){
             Vector proj_direction = ray_d - dot(axis, ray_d) * axis;
 
             A = squared_norm(proj_direction);
             B = 2 * dot(proj_origin, proj_direction);
             C = squared_norm(proj_origin) - m_radius_per_vertex[prim_index]*m_radius_per_vertex[prim_index];
-            //std::cout << "radius^2 = " << m_radius_per_vertex[prim_index]*m_radius_per_vertex[prim_index] << std::endl;
-            std::cout << "C: " << C << std::endl;
         } else{
             Point p_circle_v1 = v1 + m_radius_per_vertex[prim_index] * normalize(proj_origin);
             Point p_circle_v2 = v2 + m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
@@ -669,10 +673,10 @@ public:
         near_t = std::get<1>(coeffs);
         far_t = std::get<2>(coeffs);
 
-        if (!std::get<0>(coeffs))
+        if (!std::get<0>(coeffs)) //ToDeleteLater: 182 rays came in this condition 
             return std::make_pair(false, t);
 
-        if (!(near_t <= ray.maxt && far_t >= ray.mint))
+        if (!(near_t <= ray.maxt && far_t >= ray.mint)) //ToDeleteLater: 266 rays came in this condition 
             return std::make_pair(false, t);
 
         Point point_near = ray_o + ray_d * near_t;
@@ -685,16 +689,18 @@ public:
         if (dot(point_near - v1, n1) >= 0 && dot(point_near - v2, n2) <= 0 && near_t >= ray.mint) {
             p = Point3f(ray_o + ray_d * near_t);
             t = (Float) near_t;
-        } else if (dot(point_far - v1, n1) >= 0 && dot(point_far - v2, n2) <= 0) {
+        } else if (dot(point_far - v1, n1) >= 0 && dot(point_far - v2, n2) <= 0) { //ToDeleteLater: No ray came in this condition 
             if (far_t > ray.maxt)
                 return std::make_pair(false, t);
             p = Point3f(ray_o + ray_d * far_t);
             t = (Float) far_t;
-        } else {
+        } else { //ToDeleteLater: No ray came in this condition 
             return std::make_pair(false, t);
         }
 
-        if (cache) {
+
+        if (cache) {//ToDeleteLater: 274 rays came in this condition 
+            std::cout << "store in cache" << std::endl;
             cache[1] = prim_index;
             cache[2] = p.x();
             cache[3] = p.y();
@@ -973,32 +979,36 @@ public:
 
     void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
         ENOKI_MARK_USED(active);
+        //std::cout << "fill_surface_interaction" << std::endl;
 
         si.uv = Point2f(0.f,0.f);
         si.dp_du = ScalarVector3f(0.f);
         si.dp_dv = ScalarVector3f(0.f);
 
+        std::cout << "retrieve from" << std::endl;
         Index iv = cache[1];
         si.p[0] = cache[2];
         si.p[1] = cache[3];
         si.p[2] = cache[4];
 
-
         const Vector3f axis = m_kdtree->tangent(iv);
         si.shape = this;
 
         const Vector3f rel_hit_point = si.p - m_kdtree->first_vertex(iv);
-        auto n = normalize(rel_hit_point - dot(axis, rel_hit_point) * axis);
-        si.n = n;
+        
+        si.n = normalize(rel_hit_point - dot(axis, rel_hit_point) * axis);
 
-        Frame3f frame = Frame3f(n);
+        Frame3f frame = Frame3f(si.n);
         frame.s = axis;
         frame.t = cross(frame.n, frame.s);
 
-        const Vector3f local = frame.to_local(rel_hit_point);
-        si.p += n * (m_kdtree->radius(iv) - std::sqrt(local.y()*local.y()+local.z()*local.z()));
+        //std::cout << frame << std::endl;
 
-        si.sh_frame.n = n;
+        const Vector3f local = frame.to_local(rel_hit_point);
+
+        si.p += si.n * (m_kdtree->radius(iv) - std::sqrt(local.y()*local.y()+local.z()*local.z()));
+
+        si.sh_frame.n = si.n;
         auto uv = coordinate_system(si.sh_frame.n);
         si.dp_du = uv.first;
         si.dp_dv = uv.second;

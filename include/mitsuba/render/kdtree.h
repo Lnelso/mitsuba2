@@ -2139,9 +2139,12 @@ public:
                 node = n_cur;
                 maxt = t_plane;
                 continue;
+
             } else if (node->primitive_count() > 0) { // Arrived at a leaf node
+
                 Index prim_start = node->primitive_offset();
                 Index prim_end = prim_start + node->primitive_count();
+
                 for (Index i = prim_start; i < prim_end; i++) {
                     Index prim_index = m_indices[i];
 
@@ -2175,9 +2178,7 @@ public:
     }
 
     template <bool ShadowRay>
-    MTS_INLINE std::pair<Mask, Float> ray_intersect_packet(Ray3f ray,
-                                                           Float *cache,
-                                                           Mask active) const {
+    MTS_INLINE std::pair<Mask, Float> ray_intersect_packet(Ray3f ray, Float *cache, Mask active) const {
         /// Ray traversal stack entry
         struct KDStackEntry {
             // Ray distance associated with the node entry and exit point
@@ -2302,9 +2303,7 @@ public:
 
     /// Brute force intersection routine for debugging purposes
     template <bool ShadowRay>
-    MTS_INLINE std::pair<Mask, Float> ray_intersect_naive(Ray3f ray,
-                                                          Float *cache,
-                                                          Mask active) const {
+    MTS_INLINE std::pair<Mask, Float> ray_intersect_naive(Ray3f ray, Float *cache, Mask active) const {
         Float hit_t = math::Infinity<Float>;
         Mask hit(false);
 
