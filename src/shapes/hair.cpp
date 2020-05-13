@@ -22,10 +22,8 @@
 
 
 #define MTS_HAIR_USE_FANCY_CLIPPING 1
-
 #define MTS_KD_AABB_EPSILON 1e-3f
-
-#define HAIR_EPS 1e-4f
+#define HAIR_EPS 1e-7f
 
 
 NAMESPACE_BEGIN(mitsuba)
@@ -63,7 +61,7 @@ public:
     using Scalar = typename Base::Scalar;
 
     HairKDTree(const Properties &props, std::vector<Point> &vertices,
-               std::vector<bool> &vertex_starts_fiber, std::vector<Float> radius_per_vertex, Float max_radius, bool cylinder)
+               std::vector<bool> &vertex_starts_fiber, std::vector<Float> radius_per_vertex, bool cylinder)
             : Base(SurfaceAreaHeuristic3f(
                   props.float_("kd_intersection_cost", 20.f),
                   props.float_("kd_traversal_cost", 15.f),
@@ -444,8 +442,6 @@ public:
         Float ellipse_lengths[2];
         
         BoundingBox aabb;
-        //std::cout << "Epsilon: " << math::Epsilon<Float> << std::endl;
-        //std::cout << "radius * (1+epsilon): " << m_radius_per_vertex[iv] * (1.0f + math::Epsilon<Float>) << std::endl;
         if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, m_radius_per_vertex[iv] * (1 + HAIR_EPS),
                                ellipse_center, ellipse_axes, ellipse_lengths)) {
             return aabb;
@@ -615,74 +611,74 @@ public:
                                                  Float *cache, Mask active) const {
         ENOKI_MARK_USED(active);
 
-        Vector axis = tangent(prim_index);
+        Vector3d axis = tangent(prim_index);
 
-        Point ray_o(ray.o);
-        Vector ray_d(ray.d);
+        Point3d ray_o(ray.o);
+        Vector3d ray_d(ray.d);
 
-        Point v1 = first_vertex(prim_index);
-        Point v2 = second_vertex(prim_index);
+        Point3d v1 = first_vertex(prim_index);
+        Point3d v2 = second_vertex(prim_index);
 
-        Vector rel_origin = ray_o - v1;
-        Vector proj_origin = rel_origin - dot(axis, rel_origin) * axis;
+        Vector3d rel_origin = ray_o - v1;
+        Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
 
-        Float A, B, C;
+        double A, B, C;
         if(m_cylinder || std::abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < HAIR_EPS){
-            Vector proj_direction = ray_d - dot(axis, ray_d) * axis;
+            Vector3d proj_direction = ray_d - dot(axis, ray_d) * axis;
 
             A = squared_norm(proj_direction);
             B = 2 * dot(proj_origin, proj_direction);
-            C = squared_norm(proj_origin) - m_radius_per_vertex[prim_index]*m_radius_per_vertex[prim_index];
+            C = squared_norm(proj_origin) - (double)m_radius_per_vertex[prim_index]*(double)m_radius_per_vertex[prim_index];
         } else{
-            Point p_circle_v1 = v1 + m_radius_per_vertex[prim_index] * normalize(proj_origin);
-            Point p_circle_v2 = v2 + m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
-            Vector normalized_edge = normalize(p_circle_v2 - p_circle_v1);
+            Point3d p_circle_v1 = v1 + (double)m_radius_per_vertex[prim_index] * normalize(proj_origin);
+            Point3d p_circle_v2 = v2 + (double)m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
+            Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
 
-            Float sin_theta = norm(cross(normalized_edge, axis));
-            Float cos_theta = dot(normalized_edge, axis);
-            Float square_cos_theta = cos_theta * cos_theta;
+            double sin_theta = norm(cross(normalized_edge, axis));
+            double cos_theta = dot(normalized_edge, axis);
+            double square_cos_theta = cos_theta * cos_theta;
 
-            Float axis_direction = m_radius_per_vertex[prim_index] > m_radius_per_vertex[prim_index+1] ? 1 : -1;
+            double axis_direction = m_radius_per_vertex[prim_index] > m_radius_per_vertex[prim_index+1] ? 1 : -1;
 
-            Point cone_top = v1 + (m_radius_per_vertex[prim_index] / sin_theta) * axis * axis_direction;
-            Vector center_origin = ray_o - cone_top;
+            Point3d cone_top = v1 + ((double)m_radius_per_vertex[prim_index] / sin_theta) * axis * axis_direction;
+            Vector3d center_origin = ray_o - cone_top;
 
-            Float d_dot_axis = dot(ray_d, axis); 
-            Float center_origin_dot_axis = dot(center_origin, axis);
+            double d_dot_axis = dot(ray_d, axis); 
+            double center_origin_dot_axis = dot(center_origin, axis);
 
             A = d_dot_axis * d_dot_axis - square_cos_theta;
             B = 2 * (d_dot_axis * center_origin_dot_axis - dot(ray_d, center_origin) * square_cos_theta);
             C = center_origin_dot_axis * center_origin_dot_axis - dot(center_origin, center_origin) * square_cos_theta;
         }
 
-        Float near_t, far_t, t;
-        auto coeffs = math::solve_quadratic(A, B, C);
+        double near_t, far_t, t = 0.0;
+        auto coeffs = math::solve_quadratic<double>(A, B, C);
         near_t = std::get<1>(coeffs);
         far_t = std::get<2>(coeffs);
 
         if (!std::get<0>(coeffs))
             return std::make_pair(false, t);
 
-        if (!(near_t <= ray.maxt && far_t >= ray.mint))
+        if (!(near_t <= (double)ray.maxt && far_t >= (double)ray.mint))
             return std::make_pair(false, t);
 
         Point point_near = ray_o + ray_d * near_t;
         Point point_far = ray_o + ray_d * far_t;
 
-        Vector n1 = first_miter_normal(prim_index);
-        Vector n2 = second_miter_normal(prim_index);
-        Point3f p;
+        Vector3d n1 = first_miter_normal(prim_index);
+        Vector3d n2 = second_miter_normal(prim_index);
+        Point3d p;
 
-        if (dot(point_near - v1, n1) >= 0 && dot(point_near - v2, n2) <= 0 && near_t >= ray.mint) {
-            p = Point3f(ray_o + ray_d * near_t);
-            t = (Float) near_t;
+        if (dot(point_near - v1, n1) >= 0 && dot(point_near - v2, n2) <= 0 && near_t >= (double)ray.mint) {
+            p = Point3d(ray_o + ray_d * near_t);
+            t = near_t;
         } else if (dot(point_far - v1, n1) >= 0 && dot(point_far - v2, n2) <= 0) {
-            if (far_t > ray.maxt)
-                return std::make_pair(false, t);
-            p = Point3f(ray_o + ray_d * far_t);
-            t = (Float) far_t;
+            if (far_t > (double)ray.maxt)
+                return std::make_pair(false, (Float)t);
+            p = Point3d(ray_o + ray_d * far_t);
+            t = far_t;
         } else { 
-            return std::make_pair(false, t);
+            return std::make_pair(false, (Float)t);
         }
 
         if (cache) {
@@ -692,7 +688,7 @@ public:
             cache[4] = p.z();
         }
 
-        return std::make_pair(true, t);
+        return std::make_pair(true, (Float)t);
     }
 
     /* Some utility functions */
@@ -784,7 +780,6 @@ public:
 
         std::vector<ScalarPoint3f> vertices;
         std::vector<Float> radius_per_vertex;
-        Float max_radius = 0.f;
         std::vector<bool> vertex_starts_fiber;
         ScalarVector3f tangent(0.0f);
         size_t n_degenerate = 0, n_skipped = 0;
@@ -793,7 +788,6 @@ public:
         if (binary_format) {
             unsigned int vertex_count;
             binary_stream->read((void *)&vertex_count, sizeof(vertex_count));
-            std::cout << "Binary format - vertex count: " << vertex_count << std::endl;
             Log(LogLevel::Info, "Loading %zd hair vertices ..", vertex_count);
             vertices.reserve(vertex_count);
             vertex_starts_fiber.reserve(vertex_count);
@@ -878,9 +872,6 @@ public:
                 }
                 if (!iss.fail()) {
                     radius *= norm((object_to_world * ScalarVector3f(0.f, 0.f, 1.f)));
-                    if(radius >= max_radius){
-                        max_radius = radius;
-                    }
                     p = object_to_world * p;
                     if (ignore) {
                         // Do nothing
@@ -946,7 +937,7 @@ public:
 
         vertex_starts_fiber.push_back(true);
 
-        m_kdtree = new HairKDTree(props, vertices, vertex_starts_fiber, radius_per_vertex, max_radius, props.has_property("radius"));
+        m_kdtree = new HairKDTree(props, vertices, vertex_starts_fiber, radius_per_vertex, props.has_property("radius"));
         m_tree = true;
     }
 
