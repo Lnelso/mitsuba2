@@ -769,7 +769,6 @@ MTS_INLINE Float trimmed_logistic(Float x, Float s, Float a, Float b){
 template <typename Float>
 inline Float Np(Float phi, int p, Float s, Float gamma_o, Float gamma_t){
     Float dphi = phi - Phi(p, gamma_o, gamma_t);
-    // Remap _dphi_ to $[-\pi,\pi]$
     while (dphi > math::Pi<Float>) dphi -= 2 * math::Pi<Float>;
     while (dphi < -math::Pi<Float>) dphi += 2 * math::Pi<Float>;
     return trimmed_logistic(dphi, s, -math::Pi<Float>, math::Pi<Float>);
