@@ -75,15 +75,13 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
 
 
     BSDFSample3f bs = zero<BSDFSample3f>();
-    Spectrum result(0.f);
-
 
     Float sin_theta_i, cos_theta_i, phi_i;
     get_angles(si.wi, sin_theta_i, cos_theta_i, phi_i);
 
     active &= Frame3f::cos_theta(si.wi) > 0.f;
     if (unlikely(none_or<false>(active)))
-        return { bs, result };
+        return { bs, 0 };
 
     //std::cout << si.wi << std::endl;
 
@@ -125,10 +123,10 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
 
     // Compute wo from sampled hair scattering angles
     Float phi_o = phi_i + dphi;
-    bs.wo = normalize(Vector3f(sin_theta_o, cos_theta_o * std::cos(phi_o), cos_theta_o * std::sin(phi_o)));
+    bs.wo = -normalize(Vector3f(sin_theta_o, cos_theta_o * std::cos(phi_o), cos_theta_o * std::sin(phi_o)));
 
     // Compute PDF for sampled hair scattering direction wo
-    for (int p = 0; p < p_max; ++p) {
+    /*for (int p = 0; p < p_max; ++p) {
         // Compute sin_thetao_ and cos_theta_o terms accounting for scales
         Float sin_theta_op, cos_theta_op;
         tilt_scales(sin_theta_i, cos_theta_i, p, sin_theta_op, cos_theta_op);
@@ -140,12 +138,15 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
     }
     bs.pdf += warp::Mp(cos_theta_o, cos_theta_i, sin_theta_o, sin_theta_i, v[p_max]) *
                        ap_pdf[p_max] * (1.0f / (2 * math::Pi<ScalarFloat>));
+    bs.eta = eta;*/
+
+    bs.pdf = pdf(ctx, si, bs.wo, active);
     bs.eta = eta;
 
     if (bs.pdf == 0)
         return {bs, 0};
 
-    return {bs, eval(ctx, si, -bs.wo, active) * Frame3f::cos_theta(si.wi) / bs.pdf};
+    return {bs, eval(ctx, si, bs.wo, active) * Frame3f::cos_theta(si.wi) / bs.pdf};
 
 }
 
@@ -154,14 +155,13 @@ Spectrum HairBSDF<Float, Spectrum>::eval(const BSDFContext &ctx, const SurfaceIn
                         const Vector3f &wo, Mask active) const {
     MTS_MASKED_FUNCTION(ProfilerPhase::BSDFEvaluate, active);
 
-    active &= Frame3f::cos_theta(si.wi) > 0.f /*&& Frame3f::cos_theta(wo) > 0.f*/;
+    active &= Frame3f::cos_theta(si.wi) > 0.f;
     if (unlikely(none_or<false>(active)))
         return 0.f;
 
     // Compute hair coordinate system terms related to wi
     Float sin_theta_i, cos_theta_i, phi_i;
     get_angles(si.wi, sin_theta_i, cos_theta_i, phi_i);
-
 
     // Compute hair coordinate system terms related to wo
     Float sin_theta_o, cos_theta_o, phi_o;
@@ -210,6 +210,9 @@ Float HairBSDF<Float, Spectrum>::pdf(const BSDFContext &ctx, const SurfaceIntera
                     const Vector3f &wo, Mask active) const {
     MTS_MASKED_FUNCTION(ProfilerPhase::BSDFEvaluate, active);
 
+    active &= Frame3f::cos_theta(si.wi) > 0.f /*&& Frame3f::cos_theta(wo) > 0.f*/;
+    if (unlikely(none_or<false>(active)))
+        return 0;
 
     // Compute hair coordinate system terms related to wi
     Float sin_theta_i, cos_theta_i, phi_i;
