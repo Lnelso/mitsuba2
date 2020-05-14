@@ -168,7 +168,7 @@ private:
 	}
 
 	void get_angles(const Vector3f &w, Float &sin_theta, Float &cos_theta, Float &phi) const{
-		sin_theta = w.x();//Frame3f::sin_theta(w);
+		sin_theta = -w.x();//Frame3f::sin_theta(w);
     	cos_theta = sqrt(1 - sqr(sin_theta)); //Frame3f::cos_theta(w);//Frame3f::sin_theta(w); //
     	phi = std::atan2(w.z(), w.y());
 	}
