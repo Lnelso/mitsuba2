@@ -11,13 +11,12 @@ NAMESPACE_BEGIN(mitsuba)
 
 template <typename Float, typename Spectrum>
 HairBSDF<Float, Spectrum>::HairBSDF(const Properties &props) : Base(props) {
-    h = props.float_("h", 0.f);
-    Assert(h >= -1 && h <= 1);
+    //h = props.float_("h", 0.15f);
 
-    beta_m = props.float_("beta_m", 0.2f);
+    beta_m = props.float_("beta_m", 0.3f);
     Assert(beta_m >= 0 && beta_m <= 1);
 
-    beta_n = props.float_("beta_n", 0.2f);
+    beta_n = props.float_("beta_n", 0.3f);
     Assert(beta_n >= 0 && beta_n <= 1);
 
     Float alpha = props.float_("alpha", 2.f);
@@ -36,7 +35,7 @@ HairBSDF<Float, Spectrum>::HairBSDF(const Properties &props) : Base(props) {
         Log(LogLevel::Error, "A hair color need to be specified either through absorption, reflectance or eumelanin concentration");
     }
 
-    gamma_o = safe_asin(h);
+    //gamma_o = safe_asin(h);
     eta = props.float_("eta", 1.55f); //TODO: props.texture<Texture>("eta", 0.f); 
 
     // Compute longitudinal variance from beta_m
@@ -72,8 +71,6 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
                                                                                                         Mask active) const {
     MTS_MASKED_FUNCTION(ProfilerPhase::BSDFSample, active);
 
-
-
     BSDFSample3f bs = zero<BSDFSample3f>();
 
     Float sin_theta_i, cos_theta_i, phi_i;
@@ -83,13 +80,14 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
     if (unlikely(none_or<false>(active)))
         return { bs, 0 };
 
-    //std::cout << si.wi << std::endl;
+    Float h = -1 + 2 * si.uv[1];
+    Float gamma_o = safe_asin(h);
 
     // Derive four random samples from sample2
     Point2f u[2] = {demux_float(sample2[0]), demux_float(sample2[1])}; //u2
 
     // Determine which term p to sample for hair scattering
-    std::array<Float, p_max + 1> ap_pdf = compute_ap_pdf(cos_theta_i, si, active);
+    std::array<Float, p_max + 1> ap_pdf = compute_ap_pdf(cos_theta_i, h, si, active);
     int p;
     for (p = 0; p < p_max; ++p) {
         if (u[0][0] < ap_pdf[p]) break;
@@ -137,7 +135,7 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
                            ap_pdf[p] * warp::Np(dphi, p, s, gamma_o, gamma_t);
     }
     bs.pdf += warp::Mp(cos_theta_o, cos_theta_i, sin_theta_o, sin_theta_i, v[p_max]) *
-                       ap_pdf[p_max] * (1.0f / (2 * math::Pi<ScalarFloat>));
+                       ap_pdf[p_max] * (1.0f / (2 * math::Pi<Float>));
     bs.eta = eta;*/
 
     bs.pdf = pdf(ctx, si, bs.wo, active);
@@ -146,7 +144,18 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
     if (bs.pdf == 0)
         return {bs, 0};
 
-    return {bs, eval(ctx, si, bs.wo, active) * Frame3f::cos_theta(si.wi) / bs.pdf};
+    auto value = eval(ctx, si, bs.wo, active) * Frame3f::cos_theta(bs.wo) / bs.pdf;
+
+    for (int i=0; i<3; ++i) {
+        if ((!std::isfinite(value[i]) || value[i] < 0)){
+            std::cout << "h: " << h << " gamma: " << gamma_o << std::endl;
+            std::cout << "pdf: " << bs.pdf << std::endl;
+            std::cout << "cos_theta: " << Frame3f::cos_theta(bs.wo) << std::endl;
+            Log(LogLevel::Error, "Stop.");
+        }
+    }
+
+    return {bs, value};
 
 }
 
@@ -155,9 +164,12 @@ Spectrum HairBSDF<Float, Spectrum>::eval(const BSDFContext &ctx, const SurfaceIn
                         const Vector3f &wo, Mask active) const {
     MTS_MASKED_FUNCTION(ProfilerPhase::BSDFEvaluate, active);
 
-    active &= Frame3f::cos_theta(si.wi) > 0.f;
+    active &= Frame3f::cos_theta(si.wi) > 0.f && Frame3f::cos_theta(wo) /*wo.z()*/ >= 0;
     if (unlikely(none_or<false>(active)))
         return 0.f;
+
+    Float h = -1 +  2 * si.uv[1];
+    Float gamma_o = safe_asin(h);
 
     // Compute hair coordinate system terms related to wi
     Float sin_theta_i, cos_theta_i, phi_i;
@@ -197,7 +209,7 @@ Spectrum HairBSDF<Float, Spectrum>::eval(const BSDFContext &ctx, const SurfaceIn
     }
     // Compute contribution of remaining terms after p_max
     fsum += warp::Mp(cos_theta_i, cos_theta_o, sin_theta_i, sin_theta_o, v[p_max]) * ap[p_max] /
-                    (2.f * math::Pi<ScalarFloat>);
+                    (2.f * math::Pi<Float>);
     if (abs_cos_theta(si.wi) > 0) fsum /= abs_cos_theta(si.wi);
 
     Assert(!std::isinf(fsum.y()) && !std::isnan(fsum.y()));
@@ -210,9 +222,12 @@ Float HairBSDF<Float, Spectrum>::pdf(const BSDFContext &ctx, const SurfaceIntera
                     const Vector3f &wo, Mask active) const {
     MTS_MASKED_FUNCTION(ProfilerPhase::BSDFEvaluate, active);
 
-    active &= Frame3f::cos_theta(si.wi) > 0.f /*&& Frame3f::cos_theta(wo) > 0.f*/;
+    active &= Frame3f::cos_theta(si.wi) > 0.f && Frame3f::cos_theta(wo) > 0.f;
     if (unlikely(none_or<false>(active)))
         return 0;
+
+    Float h = -1 + 2 * si.uv[1];
+    Float gamma_o = safe_asin(h);
 
     // Compute hair coordinate system terms related to wi
     Float sin_theta_i, cos_theta_i, phi_i;
@@ -228,7 +243,7 @@ Float HairBSDF<Float, Spectrum>::pdf(const BSDFContext &ctx, const SurfaceIntera
     Float gamma_t = safe_asin(sin_gamma_t);
 
     // Compute PDF for Ap terms
-    std::array<Float, p_max + 1> ap_pdf = compute_ap_pdf(cos_theta_o, si, active);
+    std::array<Float, p_max + 1> ap_pdf = compute_ap_pdf(cos_theta_o, h, si, active);
 
     // Compute PDF sum for hair scattering events
     Float phi = phi_i - phi_o;
@@ -245,7 +260,7 @@ Float HairBSDF<Float, Spectrum>::pdf(const BSDFContext &ctx, const SurfaceIntera
     }
 
     pdf += warp::Mp(cos_theta_i, cos_theta_o, sin_theta_i, sin_theta_o, v[p_max]) *
-                    ap_pdf[p_max] * (1.0f / (2 * math::Pi<ScalarFloat>));
+                    ap_pdf[p_max] * (1.0f / (2 * math::Pi<Float>));
 
     return pdf;
 }
@@ -253,7 +268,15 @@ Float HairBSDF<Float, Spectrum>::pdf(const BSDFContext &ctx, const SurfaceIntera
 template <typename Float, typename Spectrum>
 std::string HairBSDF<Float, Spectrum>::to_string() const {
     std::ostringstream oss;
-    oss << "HairBSDF" << std::endl;
+    oss << "HairBSDF[" << std::endl
+        //<< "   h = " << h << ","
+        //<< "   gamma_o = " << gamma_o << ","
+        << "   eta = " << eta << ","
+        << "   beta_m = " << beta_m << ","
+        << "   beta_n = " << beta_n << ","
+        << "   v[0] = " << v[0] << ","
+        << "   s = " << s << ","
+        << "]";
     return oss.str();
 }
 

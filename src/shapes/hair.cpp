@@ -989,6 +989,11 @@ public:
         si.dp_dv = uv.second;
         si.instance = this;
         si.time = ray.time;
+
+        Float length = norm(m_kdtree->first_vertex(iv) - m_kdtree->second_vertex(iv));
+        Float phi = atan2(local.y(), local.x());
+        
+        si.uv = Point2f(phi * math::InvTwoPi<Float>, local.z() / length);
     }
 
     ScalarBoundingBox3f bbox() const override{

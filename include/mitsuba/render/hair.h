@@ -43,7 +43,7 @@ public:
     std::string to_string() const override;
 
 private:
-    Float h, gamma_o, eta;
+    Float /*h, gamma_o,*/ eta;
     Mode_sigma_a mode;
     ref<Texture> sigma_a;
     ref<Texture> sigma_a_reflectance;
@@ -115,7 +115,7 @@ private:
 	    return ap;
 	}
 
-	std::array<Float, p_max + 1> compute_ap_pdf(Float cos_theta_i, const SurfaceInteraction3f &si, Mask active) const {
+	std::array<Float, p_max + 1> compute_ap_pdf(Float cos_theta_i, Float h, const SurfaceInteraction3f &si, Mask active) const {
 	    // Compute array of $A_p$ values for _cosThetaO_
 	    Float sin_theta_i = safe_sqrt(1 - cos_theta_i * cos_theta_i);
 
@@ -129,7 +129,7 @@ private:
 	    Float cos_gamma_t = safe_sqrt(1 - sqr(sin_gamma_t));
 
 	    // Compute the transmittance _T_ of a single path through the cylinder
-	    Spectrum T = exp(-evaluate_sigma_a(si, active) * (2 * cos_gamma_t / cos_theta_t));
+	    Spectrum T = exp(-evaluate_sigma_a(si, active) * (2.0f * cos_gamma_t / cos_theta_t));
 
 	    std::array<Spectrum, p_max + 1> ap = Ap(cos_theta_i, eta, h, T);
 
@@ -170,7 +170,7 @@ private:
 	void get_angles(const Vector3f &w, Float &sin_theta, Float &cos_theta, Float &phi) const{
 		sin_theta = -w.x();
     	cos_theta = sqrt(1 - sqr(sin_theta));
-    	phi = std::atan2(w.z(), w.y());
+    	phi = atan2(w.z(), w.y());
 	}
 
 	void print_basis(Vector3f w) const{
