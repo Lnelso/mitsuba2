@@ -150,7 +150,7 @@ Spectrum HairBSDF<Float, Spectrum>::eval(const BSDFContext &ctx, const SurfaceIn
                         const Vector3f &wo, Mask active) const {
     MTS_MASKED_FUNCTION(ProfilerPhase::BSDFEvaluate, active);
 
-    active &= Frame3f::cos_theta(si.wi) > 0.f && Frame3f::cos_theta(wo) /*wo.z()*/ >= 0;
+    active &= Frame3f::cos_theta(si.wi) > 0.f && Frame3f::cos_theta(wo) >= 0;
     if (unlikely(none_or<false>(active)))
         return 0.f;
 

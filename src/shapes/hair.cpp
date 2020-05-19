@@ -969,7 +969,7 @@ public:
         const Vector3f axis = m_kdtree->tangent(iv);
         si.shape = this;
 
-        const Vector3f rel_hit_point = si.p - m_kdtree->first_vertex(iv);        
+        Vector3f rel_hit_point = si.p - m_kdtree->first_vertex(iv);        
         si.n = normalize(rel_hit_point - dot(axis, rel_hit_point) * axis);
 
         Frame3f frame = Frame3f(si.n);
@@ -988,22 +988,19 @@ public:
 
         //Compute the offset and store in the UV coordinate for later use by the HairBSDF
         Frame3f offset_frame = Frame3f(axis);
-        offset_frame.s = -ray.d; // Check if not ray.d
-        offset_frame.t = -cross(frame.n, frame.s); //Check order. frame.t should be a direction along the width of the cylinder
-        
-        //std::cout << "s: " << offset_frame.s << std::endl;
-        //std::cout << "t: " << offset_frame.t << std::endl;
-        /*std::cout << "norm rel_p: " << norm(rel_hit_point) << std::endl;
-        std::cout << "norm local: " << norm(local) << std::endl;
-        std::cout << "norm p: " << norm(si.p) << std::endl;
-        std::cout << "radius: " << m_kdtree->radius(iv) << std::endl;*/
-        
-        Float offset = std::abs(dot(si.p, m_kdtree->radius(iv) * offset_frame.t)) / m_kdtree->radius(iv); // should be between 0 and 1
-        //std::cout << "value: " << std::sqrt(local.y()*local.y()+local.z()*local.z()) << std::endl;
-        //std::cout << "local_t: " << frame.to_local(offset_frame.t) << std::endl;
-        //std::cout << "p: " << si.p << std::endl;
-        //std::cout << "local_p: " << frame.to_local(si.p) << std::endl;
-        //std::cout << "offset: " << offset << std::endl;
+        offset_frame.s = normalize(-ray.d - dot(-ray.d, axis) * axis); // Projection of the incident ray to the normal plane
+        offset_frame.t = -cross(frame.n, frame.s); //offset_frame.t should be a direction along the width of the cylinder
+
+        rel_hit_point = si.p - m_kdtree->first_vertex(iv);
+        Vector3f center = m_kdtree->first_vertex(iv) + axis * dot(rel_hit_point, axis);
+        Vector3f local_hit_point = offset_frame.to_local(si.p - center);
+
+        Float offset = std::abs(dot(local_hit_point, offset_frame.t) / m_kdtree->radius(iv)); // should be between 0 and 1
+        //std::cout << "norm local_hit_point: " << norm(local_hit_point) << std::endl;
+        /*std::cout << "offset_frame: " << offset_frame << std::endl;*/
+        //std::cout << "offset: "<< offset << std::endl;
+        if(offset > 1)
+            offset = 1;
         si.uv = Point2f(0, offset);
     }
 
