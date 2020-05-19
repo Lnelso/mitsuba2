@@ -82,6 +82,7 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
 
     Float h = -1 + 2 * si.uv[1];
     Float gamma_o = safe_asin(h);
+    //std::cout << h << std::endl;
 
     // Derive four random samples from sample2
     Point2f u[2] = {demux_float(sample2[0]), demux_float(sample2[1])}; //u2
@@ -121,33 +122,18 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
 
     // Compute wo from sampled hair scattering angles
     Float phi_o = phi_i + dphi;
+
     bs.wo = -normalize(Vector3f(sin_theta_o, cos_theta_o * std::cos(phi_o), cos_theta_o * std::sin(phi_o)));
-
-    // Compute PDF for sampled hair scattering direction wo
-    /*for (int p = 0; p < p_max; ++p) {
-        // Compute sin_thetao_ and cos_theta_o terms accounting for scales
-        Float sin_theta_op, cos_theta_op;
-        tilt_scales(sin_theta_i, cos_theta_i, p, sin_theta_op, cos_theta_op);
-
-        // Handle out-of-range cos_theta_o from scale adjustment
-        cos_theta_op = std::abs(cos_theta_op);
-        bs.pdf += warp::Mp(cos_theta_o, cos_theta_op, sin_theta_o, sin_theta_op, v[p]) *
-                           ap_pdf[p] * warp::Np(dphi, p, s, gamma_o, gamma_t);
-    }
-    bs.pdf += warp::Mp(cos_theta_o, cos_theta_i, sin_theta_o, sin_theta_i, v[p_max]) *
-                       ap_pdf[p_max] * (1.0f / (2 * math::Pi<Float>));
-    bs.eta = eta;*/
-
     bs.pdf = pdf(ctx, si, bs.wo, active);
     bs.eta = eta;
 
     if (bs.pdf == 0)
         return {bs, 0};
 
-    auto value = eval(ctx, si, bs.wo, active) * Frame3f::cos_theta(bs.wo) / bs.pdf;
+    auto result = eval(ctx, si, bs.wo, active) * Frame3f::cos_theta(bs.wo) / bs.pdf;
 
     for (int i=0; i<3; ++i) {
-        if ((!std::isfinite(value[i]) || value[i] < 0)){
+        if ((!std::isfinite(result[i]) || result[i] < 0)){
             std::cout << "h: " << h << " gamma: " << gamma_o << std::endl;
             std::cout << "pdf: " << bs.pdf << std::endl;
             std::cout << "cos_theta: " << Frame3f::cos_theta(bs.wo) << std::endl;
@@ -155,7 +141,7 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
         }
     }
 
-    return {bs, value};
+    return {bs, result};
 
 }
 
@@ -170,6 +156,7 @@ Spectrum HairBSDF<Float, Spectrum>::eval(const BSDFContext &ctx, const SurfaceIn
 
     Float h = -1 +  2 * si.uv[1];
     Float gamma_o = safe_asin(h);
+    //std::cout << h << std::endl;
 
     // Compute hair coordinate system terms related to wi
     Float sin_theta_i, cos_theta_i, phi_i;
@@ -228,6 +215,7 @@ Float HairBSDF<Float, Spectrum>::pdf(const BSDFContext &ctx, const SurfaceIntera
 
     Float h = -1 + 2 * si.uv[1];
     Float gamma_o = safe_asin(h);
+    //std::cout << h << std::endl;
 
     // Compute hair coordinate system terms related to wi
     Float sin_theta_i, cos_theta_i, phi_i;

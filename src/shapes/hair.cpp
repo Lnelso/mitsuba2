@@ -961,10 +961,6 @@ public:
     void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
         ENOKI_MARK_USED(active);
 
-        si.uv = Point2f(0.f,0.f);
-        si.dp_du = ScalarVector3f(0.f);
-        si.dp_dv = ScalarVector3f(0.f);
-
         Index iv = cache[1];
         si.p[0] = cache[2];
         si.p[1] = cache[3];
@@ -990,10 +986,25 @@ public:
         si.instance = this;
         si.time = ray.time;
 
-        Float length = norm(m_kdtree->first_vertex(iv) - m_kdtree->second_vertex(iv));
-        Float phi = atan2(local.y(), local.x());
+        //Compute the offset and store in the UV coordinate for later use by the HairBSDF
+        Frame3f offset_frame = Frame3f(axis);
+        offset_frame.s = -ray.d; // Check if not ray.d
+        offset_frame.t = -cross(frame.n, frame.s); //Check order. frame.t should be a direction along the width of the cylinder
         
-        si.uv = Point2f(phi * math::InvTwoPi<Float>, local.z() / length);
+        //std::cout << "s: " << offset_frame.s << std::endl;
+        //std::cout << "t: " << offset_frame.t << std::endl;
+        /*std::cout << "norm rel_p: " << norm(rel_hit_point) << std::endl;
+        std::cout << "norm local: " << norm(local) << std::endl;
+        std::cout << "norm p: " << norm(si.p) << std::endl;
+        std::cout << "radius: " << m_kdtree->radius(iv) << std::endl;*/
+        
+        Float offset = std::abs(dot(si.p, m_kdtree->radius(iv) * offset_frame.t)) / m_kdtree->radius(iv); // should be between 0 and 1
+        //std::cout << "value: " << std::sqrt(local.y()*local.y()+local.z()*local.z()) << std::endl;
+        //std::cout << "local_t: " << frame.to_local(offset_frame.t) << std::endl;
+        //std::cout << "p: " << si.p << std::endl;
+        //std::cout << "local_p: " << frame.to_local(si.p) << std::endl;
+        //std::cout << "offset: " << offset << std::endl;
+        si.uv = Point2f(0, offset);
     }
 
     ScalarBoundingBox3f bbox() const override{
