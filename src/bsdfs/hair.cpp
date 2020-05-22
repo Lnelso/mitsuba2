@@ -82,7 +82,6 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
 
     Float h = -1 + 2 * si.uv[1];
     Float gamma_o = safe_asin(h);
-    //std::cout << h << std::endl;
 
     // Derive four random samples from sample2
     Point2f u[2] = {demux_float(sample2[0]), demux_float(sample2[1])}; //u2
@@ -156,7 +155,6 @@ Spectrum HairBSDF<Float, Spectrum>::eval(const BSDFContext &ctx, const SurfaceIn
 
     Float h = -1 +  2 * si.uv[1];
     Float gamma_o = safe_asin(h);
-    //std::cout << h << std::endl;
 
     // Compute hair coordinate system terms related to wi
     Float sin_theta_i, cos_theta_i, phi_i;
@@ -215,7 +213,6 @@ Float HairBSDF<Float, Spectrum>::pdf(const BSDFContext &ctx, const SurfaceIntera
 
     Float h = -1 + 2 * si.uv[1];
     Float gamma_o = safe_asin(h);
-    //std::cout << h << std::endl;
 
     // Compute hair coordinate system terms related to wi
     Float sin_theta_i, cos_theta_i, phi_i;
@@ -257,8 +254,6 @@ template <typename Float, typename Spectrum>
 std::string HairBSDF<Float, Spectrum>::to_string() const {
     std::ostringstream oss;
     oss << "HairBSDF[" << std::endl
-        //<< "   h = " << h << ","
-        //<< "   gamma_o = " << gamma_o << ","
         << "   eta = " << eta << ","
         << "   beta_m = " << beta_m << ","
         << "   beta_n = " << beta_n << ","

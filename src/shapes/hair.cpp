@@ -16,6 +16,7 @@
 #include <mitsuba/render/fwd.h>
 #include <mitsuba/render/kdtree.h>
 #include <mitsuba/render/sensor.h>
+#include <mitsuba/core/transform.h>
 
 #include <string>
 #include <fstream>
@@ -119,7 +120,17 @@ public:
         for (Size i=0; i<m_index_count; ++i)
             m_indices[i] = m_seg_index[m_indices[i]];
 
+        for(size_t i = 0; i < m_radius_per_vertex.size(); ++i){
+            std::cout << "i: " << i << " radius: " << m_radius_per_vertex[i] << std::endl;
+        }
         //std::vector<Index>().swap(m_seg_index);
+        std::cout << "hair_count: " << hair_count() << std::endl;
+
+        std::cout << "bbox: " << m_bbox << std::endl;
+    }
+
+    MTS_INLINE bool use_cylinders() const{
+        return m_cylinder;
     }
 
     MTS_INLINE const std::vector<Point> &vertices() const {
@@ -623,24 +634,27 @@ public:
         Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
 
         double A, B, C;
+        
         if(m_cylinder || std::abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < HAIR_EPS){
             Vector3d proj_direction = ray_d - dot(axis, ray_d) * axis;
-
             A = squared_norm(proj_direction);
             B = 2 * dot(proj_origin, proj_direction);
             C = squared_norm(proj_origin) - (double)m_radius_per_vertex[prim_index]*(double)m_radius_per_vertex[prim_index];
         } else{
+            //std::cout << "prim_index: " << prim_index << " radius: " << m_radius_per_vertex[prim_index] << std::endl;
+            //std::cout << "prim_index + 1: " << prim_index + 1<< " radius: " << m_radius_per_vertex[prim_index + 1] << std::endl;
+
             Point3d p_circle_v1 = v1 + (double)m_radius_per_vertex[prim_index] * normalize(proj_origin);
             Point3d p_circle_v2 = v2 + (double)m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
             Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
 
-            double sin_theta = norm(cross(normalized_edge, axis));
+            //double sin_theta = norm(cross(normalized_edge, axis));
             double cos_theta = dot(normalized_edge, axis);
-            double square_cos_theta = cos_theta * cos_theta;
+            double square_cos_theta = sqr(cos_theta);
+            double sin_theta = sqrt(1 - square_cos_theta);
 
-            double axis_direction = m_radius_per_vertex[prim_index] > m_radius_per_vertex[prim_index+1] ? 1 : -1;
-
-            Point3d cone_top = v1 + ((double)m_radius_per_vertex[prim_index] / sin_theta) * axis * axis_direction;
+            //why nan with cos_theta / sin_theta instead of 1 / sin_theta
+            Point3d cone_top = v1 + ((double)m_radius_per_vertex[prim_index] * cos_theta / sin_theta) * axis;
             Vector3d center_origin = ray_o - cone_top;
 
             double d_dot_axis = dot(ray_d, axis); 
@@ -749,7 +763,7 @@ public:
         Float default_radius = props.float_("radius", 0.025f);
 
         Float angle_threshold = props.float_("angle_threshold", 1.0f) * (Float)(M_PI / 180.0);
-        Float dp_thresh = std::cos(angle_threshold);
+        Float dp_thresh = 1.01f;//std::cos(angle_threshold);
 
         Float reduction = props.float_("reduction", 0);
         if (reduction < 0 || reduction >= 1){
@@ -892,6 +906,7 @@ public:
                             last_p = p;
                         } else {
                             ScalarVector3f next_tangent = normalize(p - last_p);
+                            std::cout << "dot: " << dot(next_tangent, tangent) << " dp_thresh: " << dp_thresh<< std::endl;
                             if (dot(next_tangent, tangent) > dp_thresh) {
                                 tangent = normalize(p - vertices[vertices.size()-2]);
                                 vertices[vertices.size()-1] = p;
@@ -917,13 +932,22 @@ public:
             }
         }
 
+        vertex_starts_fiber.push_back(true);
+
         if(props.has_property("base") && props.has_property("tip")){
-            Float size = radius_per_vertex.size();
+            int start_idx = 0;
             Float base = props.float_("base");
-            Float incr = (base - props.float_("tip")) / size;
-            radius_per_vertex[0] = base;
-            for(size_t i = 1; i < size; ++i){
-                radius_per_vertex[i] = base - (i+1) * incr;
+            Float diff =  base - props.float_("tip");
+            Float nb_vertices = vertex_starts_fiber.size();
+            for(size_t i = 1; i < nb_vertices; ++i){
+                if(vertex_starts_fiber[i]){
+                    Float size = i - start_idx;
+                    Float incr = diff / (size - 1);
+                    for(size_t j = 0; j < size; ++j){
+                        radius_per_vertex[start_idx + j] = base - j * incr;
+                    }
+                    start_idx = i;
+                }
             }
         }
 
@@ -934,8 +958,6 @@ public:
             Log(LogLevel::Info, "Skipped %zd segments.", n_skipped);
 
         Log(LogLevel::Info, "Done (took %i ms)", timer->value());
-
-        vertex_starts_fiber.push_back(true);
 
         m_kdtree = new HairKDTree(props, vertices, vertex_starts_fiber, radius_per_vertex, props.has_property("radius"));
         m_tree = true;
@@ -969,9 +991,26 @@ public:
         const Vector3f axis = m_kdtree->tangent(iv);
         si.shape = this;
 
-        Vector3f rel_hit_point = si.p - m_kdtree->first_vertex(iv);        
+        Point3f v1 = m_kdtree->first_vertex(iv); 
+        Vector3f rel_hit_point = si.p - v1;        
         si.n = normalize(rel_hit_point - dot(axis, rel_hit_point) * axis);
 
+        //If the primitive is a cone, compute opening angle and rotate the normal
+        if(!m_kdtree->use_cylinders()){
+            Point3f v2 = m_kdtree->second_vertex(iv);
+            Vector3f rel_origin = ray.o - v1;
+            Vector3f proj_origin = normalize(rel_origin - dot(axis, rel_origin) * axis);
+
+            Point3f p_circle_v1 = v1 + m_kdtree->radius(iv) * proj_origin;
+            Point3f p_circle_v2 = v2 + m_kdtree->radius(iv+1) * proj_origin;
+
+            Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
+            double cos_theta = dot(normalized_edge, axis);
+            if(cos_theta > -1 && cos_theta <= 1){
+                si.n = Transform4f::rotate(-axis, acos(cos_theta) * 180.0 / M_PI) * si.n;
+            }
+        }
+        //TODO: modify for cone
         Frame3f frame = Frame3f(si.n);
         frame.s = axis;
         frame.t = cross(frame.n, frame.s);
@@ -991,15 +1030,14 @@ public:
         offset_frame.s = normalize(-ray.d - dot(-ray.d, axis) * axis); // Projection of the incident ray to the normal plane
         offset_frame.t = -cross(frame.n, frame.s); //offset_frame.t should be a direction along the width of the cylinder
 
-        rel_hit_point = si.p - m_kdtree->first_vertex(iv);
-        Vector3f center = m_kdtree->first_vertex(iv) + axis * dot(rel_hit_point, axis);
+        rel_hit_point = si.p - v1;
+        Vector3f center = v1 + axis * dot(rel_hit_point, axis);
         Vector3f local_hit_point = offset_frame.to_local(si.p - center);
 
-        Float offset = std::abs(dot(local_hit_point, offset_frame.t) / m_kdtree->radius(iv)); // should be between 0 and 1
-        //std::cout << "norm local_hit_point: " << norm(local_hit_point) << std::endl;
-        /*std::cout << "offset_frame: " << offset_frame << std::endl;*/
-        //std::cout << "offset: "<< offset << std::endl;
-        if(offset > 1)
+        Float denom = m_kdtree->use_cylinders() ? m_kdtree->radius(iv) : m_kdtree->radius(iv); 
+
+        Float offset = std::abs(dot(local_hit_point, offset_frame.t) / denom); // should be between 0 and 1
+        if(offset > 1) //Clamp the value to 1 because of floatinf point precision
             offset = 1;
         si.uv = Point2f(0, offset);
     }
