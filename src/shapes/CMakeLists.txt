@@ -10,5 +10,9 @@ add_plugin(rectangle   rectangle.cpp)
 add_plugin(sphere      sphere.cpp)
 add_plugin(hair        hair.cpp)
 
+if (MTS_ENABLE_EMBREE)
+    target_link_libraries(sphere PRIVATE $<TARGET_FILE:embree>)
+endif()
+
 # Register the test directory
 add_tests(${CMAKE_CURRENT_SOURCE_DIR}/tests)
