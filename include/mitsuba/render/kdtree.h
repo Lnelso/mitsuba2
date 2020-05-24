@@ -1001,7 +1001,6 @@ protected:
             ScopedSetThreadEnvironment env(m_ctx.env);
             Size prim_count = Size(m_indices.size());
             const Derived &derived = m_ctx.derived;
-
             m_ctx.work_units++;
 
             /* ==================================================================== */
@@ -1744,7 +1743,6 @@ protected:
         /* ==================================================================== */
         /*              Create build context and preallocate memory             */
         /* ==================================================================== */
-
         BuildContext ctx(derived());
 
         ctx.node_storage.reserve(prim_count);
@@ -1774,7 +1772,8 @@ protected:
                 ctx, ctx.node_storage.begin(), std::move(indices),
                 m_bbox, m_bbox, 0, 0, &final_cost);
 
-            tbb::task::spawn_root_and_wait(task); //TODO: debug
+
+            tbb::task::spawn_root_and_wait(task);
         }
 
         Log(m_log_level, "Structural kd-tree statistics:");

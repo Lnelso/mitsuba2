@@ -120,13 +120,6 @@ public:
         for (Size i=0; i<m_index_count; ++i)
             m_indices[i] = m_seg_index[m_indices[i]];
 
-        for(size_t i = 0; i < m_radius_per_vertex.size(); ++i){
-            std::cout << "i: " << i << " radius: " << m_radius_per_vertex[i] << std::endl;
-        }
-        //std::vector<Index>().swap(m_seg_index);
-        std::cout << "hair_count: " << hair_count() << std::endl;
-
-        std::cout << "bbox: " << m_bbox << std::endl;
     }
 
     MTS_INLINE bool use_cylinders() const{
@@ -158,9 +151,7 @@ public:
     }
 
     template <bool ShadowRay = false>
-    MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray,
-                                                    Float *cache,
-                                                    Mask active) const {
+    MTS_INLINE std::pair<Mask, Float> ray_intersect(const Ray3f &ray, Float *cache, Mask active) const {
         ENOKI_MARK_USED(active);
         if constexpr (!is_array_v<Float>)
             return ray_intersect_scalar<ShadowRay>(ray, cache);
@@ -169,8 +160,7 @@ public:
     }
 
     template <bool ShadowRay>
-    MTS_INLINE std::pair<bool, Float> ray_intersect_scalar(Ray3f ray,
-                                                           Float *cache) const {
+    MTS_INLINE std::pair<bool, Float> ray_intersect_scalar(Ray3f ray, Float *cache) const {
         /// Ray traversal stack entry
         struct KDStackEntry {
             // Ray distance associated with the node entry and exit point
@@ -398,13 +388,13 @@ public:
             Point cyl_pt, Vector cyl_d, Float radius, Point &center,
             Vector *axes, Float *lengths) const {
         
-        if (abs_dot(plane_nrml, cyl_d) < HAIR_EPS)
+        if (abs_dot(plane_nrml, cyl_d) < math::Epsilon<Float>)
             return false;
 
         Vector B, A = cyl_d - dot(cyl_d, plane_nrml)*plane_nrml;
 
         Float length = norm(A);
-        if (length > HAIR_EPS && plane_nrml != cyl_d) {
+        if (length > 1e-4 && plane_nrml != cyl_d) {
             A /= length;
             B = cross(plane_nrml, A);
         } else {
@@ -451,9 +441,9 @@ public:
         Point ellipse_center;
         Vector ellipse_axes[2];
         Float ellipse_lengths[2];
-        
+
         BoundingBox aabb;
-        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, m_radius_per_vertex[iv] * (1 + HAIR_EPS),
+        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, m_radius_per_vertex[iv] * (1 + math::Epsilon<Float>),
                                ellipse_center, ellipse_axes, ellipse_lengths)) {
             return aabb;
         }
@@ -540,6 +530,7 @@ public:
             result.min[i] = std::min(result.min[i], center[i]-range);
             result.max[i] = std::max(result.max[i], center[i]+range);
         }
+
         return result;
     }
 
@@ -623,7 +614,6 @@ public:
         ENOKI_MARK_USED(active);
 
         Vector3d axis = tangent(prim_index);
-
         Point3d ray_o(ray.o);
         Vector3d ray_d(ray.d);
 
@@ -641,28 +631,23 @@ public:
             B = 2 * dot(proj_origin, proj_direction);
             C = squared_norm(proj_origin) - (double)m_radius_per_vertex[prim_index]*(double)m_radius_per_vertex[prim_index];
         } else{
-            //std::cout << "prim_index: " << prim_index << " radius: " << m_radius_per_vertex[prim_index] << std::endl;
-            //std::cout << "prim_index + 1: " << prim_index + 1<< " radius: " << m_radius_per_vertex[prim_index + 1] << std::endl;
-
             Point3d p_circle_v1 = v1 + (double)m_radius_per_vertex[prim_index] * normalize(proj_origin);
             Point3d p_circle_v2 = v2 + (double)m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
             Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
 
-            //double sin_theta = norm(cross(normalized_edge, axis));
             double cos_theta = dot(normalized_edge, axis);
             double square_cos_theta = sqr(cos_theta);
             double sin_theta = sqrt(1 - square_cos_theta);
 
-            //why nan with cos_theta / sin_theta instead of 1 / sin_theta
             Point3d cone_top = v1 + ((double)m_radius_per_vertex[prim_index] * cos_theta / sin_theta) * axis;
             Vector3d center_origin = ray_o - cone_top;
 
-            double d_dot_axis = dot(ray_d, axis); 
-            double center_origin_dot_axis = dot(center_origin, axis);
+            double d_dot_axis = dot(ray_d, -axis); 
+            double center_origin_dot_axis = dot(center_origin, -axis);
 
-            A = d_dot_axis * d_dot_axis - square_cos_theta;
+            A = sqr(d_dot_axis) - square_cos_theta;
             B = 2 * (d_dot_axis * center_origin_dot_axis - dot(ray_d, center_origin) * square_cos_theta);
-            C = center_origin_dot_axis * center_origin_dot_axis - dot(center_origin, center_origin) * square_cos_theta;
+            C = sqr(center_origin_dot_axis) - dot(center_origin, center_origin) * square_cos_theta;
         }
 
         double near_t, far_t, t = 0.0;
@@ -906,7 +891,6 @@ public:
                             last_p = p;
                         } else {
                             ScalarVector3f next_tangent = normalize(p - last_p);
-                            std::cout << "dot: " << dot(next_tangent, tangent) << " dp_thresh: " << dp_thresh<< std::endl;
                             if (dot(next_tangent, tangent) > dp_thresh) {
                                 tangent = normalize(p - vertices[vertices.size()-2]);
                                 vertices[vertices.size()-1] = p;
@@ -1007,9 +991,10 @@ public:
             Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
             double cos_theta = dot(normalized_edge, axis);
             if(cos_theta > -1 && cos_theta <= 1){
-                si.n = Transform4f::rotate(-axis, acos(cos_theta) * 180.0 / M_PI) * si.n;
+                si.n = Transform4f::rotate(axis, -(acos(cos_theta) * 180.0 / M_PI)) * si.n;
             }
         }
+
         //TODO: modify for cone
         Frame3f frame = Frame3f(si.n);
         frame.s = axis;
