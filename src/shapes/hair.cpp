@@ -25,6 +25,7 @@
 #define MTS_HAIR_USE_FANCY_CLIPPING 1
 #define MTS_KD_AABB_EPSILON 1e-3f
 #define HAIR_EPS 1e-7f
+#define SINGLE_PRECISON_EPSILON 1e-4f
 
 
 NAMESPACE_BEGIN(mitsuba)
@@ -388,13 +389,13 @@ public:
             Point cyl_pt, Vector cyl_d, Float radius, Point &center,
             Vector *axes, Float *lengths) const {
         
-        if (abs_dot(plane_nrml, cyl_d) < math::Epsilon<Float>)
+        if (abs_dot(plane_nrml, cyl_d) < SINGLE_PRECISON_EPSILON)
             return false;
 
         Vector B, A = cyl_d - dot(cyl_d, plane_nrml)*plane_nrml;
 
         Float length = norm(A);
-        if (length > 1e-4 && plane_nrml != cyl_d) {
+        if (length > SINGLE_PRECISON_EPSILON && plane_nrml != cyl_d) {
             A /= length;
             B = cross(plane_nrml, A);
         } else {
@@ -443,7 +444,7 @@ public:
         Float ellipse_lengths[2];
 
         BoundingBox aabb;
-        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, m_radius_per_vertex[iv] * (1 + math::Epsilon<Float>),
+        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, m_radius_per_vertex[iv] * (1 + SINGLE_PRECISON_EPSILON),
                                ellipse_center, ellipse_axes, ellipse_lengths)) {
             return aabb;
         }
@@ -509,7 +510,7 @@ public:
         Float lengths[2];
 
         bool success = intersect_cyl_plane(first_vertex(iv), first_miter_normal(iv),
-                                         first_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-HAIR_EPS), center, axes, lengths);
+                                         first_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-SINGLE_PRECISON_EPSILON), center, axes, lengths);
         Assert(success);
 
         BoundingBox result;
@@ -521,7 +522,7 @@ public:
         }
 
         success = intersect_cyl_plane(second_vertex(iv), second_miter_normal(iv),
-                                    second_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-HAIR_EPS), center, axes, lengths);
+                                    second_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-SINGLE_PRECISON_EPSILON), center, axes, lengths);
         Assert(success);
 
         axes[0] *= lengths[0]; axes[1] *= lengths[1];
@@ -625,7 +626,7 @@ public:
 
         double A, B, C;
         
-        if(m_cylinder || std::abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < HAIR_EPS){
+        if(m_cylinder || std::abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < SINGLE_PRECISON_EPSILON){
             Vector3d proj_direction = ray_d - dot(axis, ray_d) * axis;
             A = squared_norm(proj_direction);
             B = 2 * dot(proj_origin, proj_direction);
