@@ -977,12 +977,12 @@ public:
         si.shape = this;
 
         Point3f v1 = m_kdtree->first_vertex(iv); 
+        Point3f v2 = m_kdtree->second_vertex(iv);
         Vector3f rel_hit_point = si.p - v1;        
         si.n = normalize(rel_hit_point - dot(axis, rel_hit_point) * axis);
 
         //If the primitive is a cone, compute opening angle and rotate the normal
         if(!m_kdtree->use_cylinders()){
-            Point3f v2 = m_kdtree->second_vertex(iv);
             Vector3f rel_origin = ray.o - v1;
             Vector3f proj_origin = normalize(rel_origin - dot(axis, rel_origin) * axis);
 
@@ -1002,8 +1002,15 @@ public:
         frame.t = cross(frame.n, frame.s);
 
         const Vector3f local = frame.to_local(rel_hit_point);
-
-        si.p += si.n * (m_kdtree->radius(iv) - std::sqrt(local.y()*local.y()+local.z()*local.z()));
+        Float radius_at_p = 0;
+        if(!m_kdtree->use_cylinders()){
+            Float delta_radius = m_kdtree->radius(iv) - m_kdtree->radius(iv + 1);
+            radius_at_p = m_kdtree->radius(iv) - (dot(rel_hit_point, axis) / norm(v2 - v1)) * delta_radius;
+            si.p += si.n * ( radius_at_p -
+                             std::sqrt(local.y()*local.y()+local.z()*local.z()));
+        } else{
+            si.p += si.n * (m_kdtree->radius(iv) - std::sqrt(local.y()*local.y()+local.z()*local.z()));
+        }
         si.sh_frame.n = si.n;
         auto uv = coordinate_system(si.sh_frame.n);
         si.dp_du = uv.first;
@@ -1020,7 +1027,7 @@ public:
         Vector3f center = v1 + axis * dot(rel_hit_point, axis);
         Vector3f local_hit_point = offset_frame.to_local(si.p - center);
 
-        Float denom = m_kdtree->use_cylinders() ? m_kdtree->radius(iv) : m_kdtree->radius(iv); 
+        Float denom = m_kdtree->use_cylinders() ? m_kdtree->radius(iv) : radius_at_p; 
 
         Float offset = std::abs(dot(local_hit_point, offset_frame.t) / denom); // should be between 0 and 1
         if(offset > 1) //Clamp the value to 1 because of floatinf point precision
