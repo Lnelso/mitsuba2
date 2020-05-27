@@ -120,7 +120,6 @@ public:
 
         for (Size i=0; i<m_index_count; ++i)
             m_indices[i] = m_seg_index[m_indices[i]];
-
     }
 
     MTS_INLINE bool use_cylinders() const{

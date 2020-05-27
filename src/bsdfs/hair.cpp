@@ -11,8 +11,6 @@ NAMESPACE_BEGIN(mitsuba)
 
 template <typename Float, typename Spectrum>
 HairBSDF<Float, Spectrum>::HairBSDF(const Properties &props) : Base(props) {
-    //h = props.float_("h", 0.15f);
-
     beta_m = props.float_("beta_m", 0.3f);
     Assert(beta_m >= 0 && beta_m <= 1);
 
@@ -35,7 +33,6 @@ HairBSDF<Float, Spectrum>::HairBSDF(const Properties &props) : Base(props) {
         Log(LogLevel::Error, "A hair color need to be specified either through absorption, reflectance or eumelanin concentration");
     }
 
-    //gamma_o = safe_asin(h);
     eta = props.float_("eta", 1.55f); //TODO: props.texture<Texture>("eta", 0.f); 
 
     // Compute longitudinal variance from beta_m
@@ -60,6 +57,10 @@ HairBSDF<Float, Spectrum>::HairBSDF(const Properties &props) : Base(props) {
         sin_2k_alpha[i] = 2 * cos_2k_alpha[i - 1] * sin_2k_alpha[i - 1];
         cos_2k_alpha[i] = sqr(cos_2k_alpha[i - 1]) - sqr(sin_2k_alpha[i - 1]);
     }
+
+    m_components.push_back(BSDFFlags::GlossyReflection | BSDFFlags::FrontSide);
+    m_components.push_back(BSDFFlags::DiffuseReflection | BSDFFlags::FrontSide);
+    m_flags =  m_components[0] | m_components[1];
 }
 
 
@@ -141,7 +142,6 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
     }
 
     return {bs, result};
-
 }
 
 template <typename Float, typename Spectrum>
