@@ -175,14 +175,9 @@ public:
 
         m_alpha = distr.alpha();
 
-        //m_components.push_back(BSDFFlags::GlossyReflection | BSDFFlags::FrontSide);
-        //m_components.push_back(BSDFFlags::DiffuseReflection | BSDFFlags::FrontSide);
-        m_components.push_back(BSDFFlags::Glossy | BSDFFlags::SpatiallyVarying);
-        m_components.push_back(BSDFFlags::Reflection | BSDFFlags::SpatiallyVarying);
-        m_components.push_back(BSDFFlags::Transmission | BSDFFlags::SpatiallyVarying);
-        //m_components.push_back(BSDFFlags::SpatiallyVarying | BSDFFlags::FrontSide);
-
-        m_flags =  m_components[0] | m_components[1] | m_components[2];
+        m_components.push_back(BSDFFlags::GlossyReflection | BSDFFlags::FrontSide);
+        m_components.push_back(BSDFFlags::DiffuseReflection | BSDFFlags::FrontSide);
+        m_flags =  m_components[0] | m_components[1];
 
         parameters_changed();
     }

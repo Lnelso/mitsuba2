@@ -58,9 +58,14 @@ HairBSDF<Float, Spectrum>::HairBSDF(const Properties &props) : Base(props) {
         cos_2k_alpha[i] = sqr(cos_2k_alpha[i - 1]) - sqr(sin_2k_alpha[i - 1]);
     }
 
-    m_components.push_back(BSDFFlags::GlossyReflection | BSDFFlags::FrontSide);
-    m_components.push_back(BSDFFlags::DiffuseReflection | BSDFFlags::FrontSide);
-    m_flags =  m_components[0] | m_components[1];
+    //m_components.push_back(BSDFFlags::GlossyReflection | BSDFFlags::FrontSide);
+    //m_components.push_back(BSDFFlags::DiffuseReflection | BSDFFlags::FrontSide);
+    //m_components.push_back(BSDFFlags::Transmission | BSDFFlags::FrontSide);
+    m_components.push_back(BSDFFlags::Glossy | BSDFFlags::SpatiallyVarying);
+    m_components.push_back(BSDFFlags::Reflection | BSDFFlags::SpatiallyVarying);
+    m_components.push_back(BSDFFlags::Transmission | BSDFFlags::SpatiallyVarying);
+
+    m_flags =  m_components[0] | m_components[1] | m_components[2];
 }
 
 
