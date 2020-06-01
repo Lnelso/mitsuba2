@@ -1002,7 +1002,7 @@ public:
 
         const Vector3f local = frame.to_local(rel_hit_point);
         Float radius_at_p = 0;
-        if(!m_kdtree->use_cylinders()){
+        if(!m_kdtree->use_cylinders() && std::abs(m_kdtree->radius(iv) - m_kdtree->radius(iv+1)) < SINGLE_PRECISON_EPSILON){
             Float delta_radius = m_kdtree->radius(iv) - m_kdtree->radius(iv + 1);
             radius_at_p = m_kdtree->radius(iv) - (dot(rel_hit_point, axis) / norm(v2 - v1)) * delta_radius;
             si.p += si.n * ( radius_at_p -
@@ -1026,10 +1026,11 @@ public:
         Vector3f center = v1 + axis * dot(rel_hit_point, axis);
         Vector3f local_hit_point = offset_frame.to_local(si.p - center);
 
-        Float denom = m_kdtree->use_cylinders() ? m_kdtree->radius(iv) : radius_at_p; 
+        Float denom = m_kdtree->use_cylinders() ||
+                      std::abs(m_kdtree->radius(iv) - m_kdtree->radius(iv+1)) < SINGLE_PRECISON_EPSILON ? m_kdtree->radius(iv) : radius_at_p; 
 
         Float offset = std::abs(dot(local_hit_point, offset_frame.t) / denom); // should be between 0 and 1
-        if(offset > 1) //Clamp the value to 1 because of floatinf point precision
+        if(offset > 1) //Clamp the value to 1 because of floating point precision
             offset = 1;
         si.uv = Point2f(0, offset);
     }

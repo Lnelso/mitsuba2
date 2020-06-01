@@ -58,9 +58,6 @@ HairBSDF<Float, Spectrum>::HairBSDF(const Properties &props) : Base(props) {
         cos_2k_alpha[i] = sqr(cos_2k_alpha[i - 1]) - sqr(sin_2k_alpha[i - 1]);
     }
 
-    //m_components.push_back(BSDFFlags::GlossyReflection | BSDFFlags::FrontSide);
-    //m_components.push_back(BSDFFlags::DiffuseReflection | BSDFFlags::FrontSide);
-    //m_components.push_back(BSDFFlags::Transmission | BSDFFlags::FrontSide);
     m_components.push_back(BSDFFlags::Glossy | BSDFFlags::SpatiallyVarying);
     m_components.push_back(BSDFFlags::Reflection | BSDFFlags::SpatiallyVarying);
     m_components.push_back(BSDFFlags::Transmission | BSDFFlags::SpatiallyVarying);
@@ -135,7 +132,7 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
     if (bs.pdf == 0)
         return {bs, 0};
 
-    auto result = eval(ctx, si, bs.wo, active) * Frame3f::cos_theta(bs.wo) / bs.pdf;
+    auto result = eval(ctx, si, bs.wo, active) * Frame3f::cos_theta(si.wi) / bs.pdf;
 
     for (int i=0; i<3; ++i) {
         if ((!std::isfinite(result[i]) || result[i] < 0)){
@@ -154,11 +151,11 @@ Spectrum HairBSDF<Float, Spectrum>::eval(const BSDFContext &ctx, const SurfaceIn
                         const Vector3f &wo, Mask active) const {
     MTS_MASKED_FUNCTION(ProfilerPhase::BSDFEvaluate, active);
 
-    active &= Frame3f::cos_theta(si.wi) > 0.f && Frame3f::cos_theta(wo) >= 0;
+    active &= Frame3f::cos_theta(si.wi) > 0.f /*&& Frame3f::cos_theta(wo) >= 0*/;
     if (unlikely(none_or<false>(active)))
         return 0.f;
 
-    Float h = -1 +  2 * si.uv[1];
+    Float h = -1 + 2 * si.uv[1];
     Float gamma_o = safe_asin(h);
 
     // Compute hair coordinate system terms related to wi
@@ -212,7 +209,7 @@ Float HairBSDF<Float, Spectrum>::pdf(const BSDFContext &ctx, const SurfaceIntera
                     const Vector3f &wo, Mask active) const {
     MTS_MASKED_FUNCTION(ProfilerPhase::BSDFEvaluate, active);
 
-    active &= Frame3f::cos_theta(si.wi) > 0.f && Frame3f::cos_theta(wo) > 0.f;
+    active &= Frame3f::cos_theta(si.wi) > 0.f /*&& Frame3f::cos_theta(wo) > 0.f*/;
     if (unlikely(none_or<false>(active)))
         return 0;
 
