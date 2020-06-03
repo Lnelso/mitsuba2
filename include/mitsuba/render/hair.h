@@ -88,11 +88,10 @@ private:
     }
 
     Point2f demux_float(Float f) const{
-        Assert(f >= 0 && f < 1);
-        uint64_t v = f * (1ull << 32);
-        Assert(v < 0x100000000);
-        uint32_t bits[2] = {compact_1_by_1(v), compact_1_by_1(v >> 1)};
-        return {bits[0] / Float(1 << 16), bits[1] / Float(1 << 16)};
+        //uint64_t v = f * (1ull << 32);
+        //uint32_t bits[2] = {compact_1_by_1(v), compact_1_by_1(v >> 1)};
+        //return {bits[0] / Float(1 << 16), bits[1] / Float(1 << 16)};
+        return Point2f{f};
     }
 
     std::array<Spectrum, p_max + 1> Ap(Float cos_theta_i, Float eta, Float h, const Spectrum &T) const{
@@ -124,7 +123,7 @@ private:
 	    Float cos_theta_t = safe_sqrt(1 - sqr(sin_theta_t));
 
 	    // Compute $\gammat$ for refracted ray
-	    Float etap = std::sqrt(eta * eta - sqr(sin_theta_i)) / cos_theta_i;
+	    Float etap = sqrt(eta * eta - sqr(sin_theta_i)) / cos_theta_i;
 	    Float sin_gamma_t = h / etap;
 	    Float cos_gamma_t = safe_sqrt(1 - sqr(sin_gamma_t));
 
@@ -143,7 +142,7 @@ private:
 	}
 
 	Float abs_cos_theta(const Vector3f &w) const{
-		return std::abs(Frame3f::cos_theta(w));
+		return abs(Frame3f::cos_theta(w));
 	}
 
 	inline Float radians(Float deg) const{
@@ -168,7 +167,7 @@ private:
 	}
 
 	void get_angles(const Vector3f &w, Float &sin_theta, Float &cos_theta, Float &phi) const{
-		sin_theta = -w.x();
+		sin_theta = w.x();
     	cos_theta = sqrt(1 - sqr(sin_theta));
     	phi = atan2(w.z(), w.y());
 	}
@@ -185,7 +184,7 @@ private:
 	Spectrum sigma_a_from_reflectance(const Spectrum &c, Float beta_n) const{
 	    Spectrum sigma_a;
 	    for (size_t i = 0; i < Spectrum::Size; ++i)
-	        sigma_a[i] = sqr(std::log(c[i]) /
+	        sigma_a[i] = sqr(log(c[i]) /
 	                         (5.969f - 0.215f * beta_n + 2.532f * sqr(beta_n) -
 	                          10.73f * pow<3>(beta_n) + 5.574f * pow<4>(beta_n) +
 	                          0.245f * pow<5>(beta_n)));

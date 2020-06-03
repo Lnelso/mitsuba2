@@ -107,9 +107,9 @@ public:
         for(size_t i = 0; i < m_segment_count; ++i)
             m_bbox.expand(bbox(i));
         
-        const Float eps = MTS_KD_AABB_EPSILON;
-        m_bbox.min -= m_bbox.extents() * eps + Vector3f(eps);
-        m_bbox.max += m_bbox.extents() * eps + Vector3f(eps);
+        const Scalar eps = MTS_KD_AABB_EPSILON;
+        m_bbox.min -= m_bbox.extents() * eps + Vector(eps);
+        m_bbox.max += m_bbox.extents() * eps + Vector(eps);
             
         set_stop_primitives(1);
         set_exact_primitive_threshold(16384);
@@ -419,8 +419,8 @@ public:
         Float alpha0 = -c2/(2*c0),
                 beta0 = -c3/(2*c1);
 
-        lengths[0] = std::sqrt(c1*lambda),
-        lengths[1] = std::sqrt(c0*lambda);
+        lengths[0] = sqrt(c1*lambda),
+        lengths[1] = sqrt(c0*lambda);
 
         center = plane_pt + alpha0 * A + beta0 * B;
         axes[0] = A;
@@ -487,7 +487,7 @@ public:
             int j = (i==0) ? axis1 : axis2;
             Float alpha = ellipse_axes[0][j];
             Float beta = ellipse_axes[1][j];
-            Float tmp = 1 / std::sqrt(alpha*alpha + beta*beta);
+            Float tmp = 1 / sqrt(alpha*alpha + beta*beta);
             Float cos_theta = alpha * tmp, sin_theta = beta*tmp;
 
             Point p1 = ellipse_center + cos_theta*ellipse_axes[0] + sin_theta*ellipse_axes[1];
@@ -515,9 +515,9 @@ public:
         BoundingBox result;
         axes[0] *= lengths[0]; axes[1] *= lengths[1];
         for (int i=0; i<3; ++i) {
-            Float range = std::sqrt(axes[0][i]*axes[0][i] + axes[1][i]*axes[1][i]);
-            result.min[i] = std::min(result.min[i], center[i]-range);
-            result.max[i] = std::max(result.max[i], center[i]+range);
+            Float range = sqrt(axes[0][i]*axes[0][i] + axes[1][i]*axes[1][i]);
+            result.min[i] = min(result.min[i], center[i]-range);
+            result.max[i] = max(result.max[i], center[i]+range);
         }
 
         success = intersect_cyl_plane(second_vertex(iv), second_miter_normal(iv),
@@ -526,9 +526,9 @@ public:
 
         axes[0] *= lengths[0]; axes[1] *= lengths[1];
         for (int i=0; i<3; ++i) {
-            Float range = std::sqrt(axes[0][i]*axes[0][i] + axes[1][i]*axes[1][i]);
-            result.min[i] = std::min(result.min[i], center[i]-range);
-            result.max[i] = std::max(result.max[i], center[i]+range);
+            Float range = sqrt(axes[0][i]*axes[0][i] + axes[1][i]*axes[1][i]);
+            result.min[i] = min(result.min[i], center[i]-range);
+            result.max[i] = max(result.max[i], center[i]+range);
         }
 
         return result;
@@ -583,8 +583,8 @@ public:
 
         const Float cos0 = dot(first_miter_normal(iv), tangent(iv));
         const Float cos1 = dot(second_miter_normal(iv), tangent(iv));
-        const Float max_inv_cos = 1.0f / (Float)std::min(cos0, cos1);
-        const Float max = std::max(m_radius_per_vertex[iv], m_radius_per_vertex[iv+1]);
+        const Float max_inv_cos = 1.0f / (Float)enoki::min(cos0, cos1);
+        const Float max = enoki::max(m_radius_per_vertex[iv], m_radius_per_vertex[iv+1]);
         const Vector expand_vec(max * max_inv_cos);
 
         const Point a = first_vertex(iv);
@@ -608,6 +608,7 @@ public:
     MTS_INLINE Size primitive_count() const {
         return (Size) m_segment_count;
     }
+
 //http://lousodrome.net/blog/light/2017/01/03/intersection-of-a-ray-and-a-cone/
     MTS_INLINE std::pair<Mask, Float> intersect_prim(Index prim_index, const Ray3f &ray,
                                                  Float *cache, Mask active) const {
@@ -624,8 +625,8 @@ public:
         Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
 
         double A, B, C;
-        
-        if(m_cylinder || std::abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < SINGLE_PRECISON_EPSILON){
+        active = abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < SINGLE_PRECISON_EPSILON;
+        if(abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < SINGLE_PRECISON_EPSILON){
             Vector3d proj_direction = ray_d - dot(axis, ray_d) * axis;
             A = squared_norm(proj_direction);
             B = 2 * dot(proj_origin, proj_direction);
@@ -745,20 +746,20 @@ public:
         FileResolver *fs = Thread::thread()->file_resolver();
         fs::path file_path = fs->resolve(props.string("filename"));
 
-        Float default_radius = props.float_("radius", 0.025f);
+        ScalarFloat default_radius = props.float_("radius", 0.025f);
 
-        Float angle_threshold = props.float_("angle_threshold", 1.0f) * (Float)(M_PI / 180.0);
-        Float dp_thresh = 1.01f;//std::cos(angle_threshold);
+        ScalarFloat angle_threshold = props.float_("angle_threshold", 1.0f) * (ScalarFloat)(M_PI / 180.0);
+        ScalarFloat dp_thresh = cos(angle_threshold);
 
-        Float reduction = props.float_("reduction", 0);
+        ScalarFloat reduction = props.float_("reduction", 0);
         if (reduction < 0 || reduction >= 1){
             Log(LogLevel::Error, "The 'reduction' parameter must have a value in [0, 1)!");
         } else if (reduction > 0){
-            Float correction = 1.0f / (1-reduction);
+            ScalarFloat correction = 1.0f / (1-reduction);
             Log(LogLevel::Debug, "Reducing the amount of geometry by %.2f%%, scaling radii by %f.");
             default_radius *= correction;
         }
-        Float radius = default_radius;
+        ScalarFloat radius = default_radius;
         std::unique_ptr<PCG32> rng = std::make_unique<PCG32>(); //TODO: Is it the correct way to do it?
 
         ScalarTransform4f object_to_world = props.transform("to_world");
@@ -795,15 +796,15 @@ public:
             size_t vertices_read = 0;
 
             while (vertices_read != vertex_count) {
-                Float value;
+                ScalarFloat value;
                 binary_stream->read((void*)&value, sizeof(value));
-                if (std::isinf(value)) {
+                if (isinf(value)) {
                     binary_stream->read((void*)&p.x(), sizeof(p.x()));
                     binary_stream->read((void*)&p.y(), sizeof(p.y()));
                     binary_stream->read((void*)&p.z(), sizeof(p.z()));
                     new_fiber = true;
                     if (reduction > 0)
-                        ignore = rng->next_float32() < reduction;
+                        ignore = any(rng->next_float32() < reduction);
                 } else {
                     p[0] = value;
                     binary_stream->read((void*)&p.y(), sizeof(p.y()));
@@ -911,7 +912,7 @@ public:
                 } else {
                     new_fiber = true;
                     if (reduction > 0)
-                        ignore = rng->next_float32() < reduction;
+                        ignore = any(rng->next_float32() < reduction);
                 }
             }
         }
@@ -920,13 +921,13 @@ public:
 
         if(props.has_property("base") && props.has_property("tip")){
             int start_idx = 0;
-            Float base = props.float_("base");
-            Float diff =  base - props.float_("tip");
-            Float nb_vertices = vertex_starts_fiber.size();
+            ScalarFloat base = props.float_("base");
+            ScalarFloat diff =  base - props.float_("tip");
+            ScalarFloat nb_vertices = vertex_starts_fiber.size();
             for(size_t i = 1; i < nb_vertices; ++i){
                 if(vertex_starts_fiber[i]){
-                    Float size = i - start_idx;
-                    Float incr = diff / (size - 1);
+                    ScalarFloat size = i - start_idx;
+                    ScalarFloat incr = diff / (size - 1);
                     for(size_t j = 0; j < size; ++j){
                         radius_per_vertex[start_idx + j] = base - j * incr;
                     }
@@ -967,7 +968,7 @@ public:
     void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
         ENOKI_MARK_USED(active);
 
-        Index iv = cache[1];
+        Index iv = reinterpret_array<Index>(cache[1]);
         si.p[0] = cache[2];
         si.p[1] = cache[3];
         si.p[2] = cache[4];
@@ -989,10 +990,9 @@ public:
             Point3f p_circle_v2 = v2 + m_kdtree->radius(iv+1) * proj_origin;
 
             Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
-            double cos_theta = dot(normalized_edge, axis);
-            if(cos_theta > -1 && cos_theta <= 1){
-                si.n = Transform4f::rotate(axis, -(acos(cos_theta) * 180.0 / M_PI)) * si.n;
-            }
+            Float cos_theta = dot(normalized_edge, axis); //TODO: why it was double?
+            active = cos_theta > -1.f && cos_theta <= 1;
+            masked(si.n, active) = Transform4f::rotate(axis, -(acos(cos_theta) * 180.0 / M_PI)) * si.n;
         }
 
         //TODO: modify for cone
@@ -1001,15 +1001,13 @@ public:
         frame.t = cross(frame.n, frame.s);
 
         const Vector3f local = frame.to_local(rel_hit_point);
-        Float radius_at_p = 0;
-        if(!m_kdtree->use_cylinders() && std::abs(m_kdtree->radius(iv) - m_kdtree->radius(iv+1)) < SINGLE_PRECISON_EPSILON){
-            Float delta_radius = m_kdtree->radius(iv) - m_kdtree->radius(iv + 1);
-            radius_at_p = m_kdtree->radius(iv) - (dot(rel_hit_point, axis) / norm(v2 - v1)) * delta_radius;
-            si.p += si.n * ( radius_at_p -
-                             std::sqrt(local.y()*local.y()+local.z()*local.z()));
-        } else{
-            si.p += si.n * (m_kdtree->radius(iv) - std::sqrt(local.y()*local.y()+local.z()*local.z()));
-        }
+       
+        Float delta_radius = m_kdtree->radius(iv) - m_kdtree->radius(iv + 1);
+        Float radius_at_p = m_kdtree->radius(iv) - (dot(rel_hit_point, axis) / norm(v2 - v1)) * delta_radius;
+        active = abs(m_kdtree->radius(iv) - m_kdtree->radius(iv+1)) < SINGLE_PRECISON_EPSILON;
+        masked(si.p, active) += si.n * ( radius_at_p - sqrt(local.y()*local.y()+local.z()*local.z()));
+        masked(si.p, !active) += si.n * (m_kdtree->radius(iv) - sqrt(local.y()*local.y()+local.z()*local.z()));
+
         si.sh_frame.n = si.n;
         auto uv = coordinate_system(si.sh_frame.n);
         si.dp_du = uv.first;
@@ -1026,12 +1024,13 @@ public:
         Vector3f center = v1 + axis * dot(rel_hit_point, axis);
         Vector3f local_hit_point = offset_frame.to_local(si.p - center);
 
-        Float denom = m_kdtree->use_cylinders() ||
-                      std::abs(m_kdtree->radius(iv) - m_kdtree->radius(iv+1)) < SINGLE_PRECISON_EPSILON ? m_kdtree->radius(iv) : radius_at_p; 
+        Float denom;
+        masked(denom, active) = m_kdtree->radius(iv);
+        masked(denom, !active) = radius_at_p;
 
-        Float offset = std::abs(dot(local_hit_point, offset_frame.t) / denom); // should be between 0 and 1
-        if(offset > 1) //Clamp the value to 1 because of floating point precision
-            offset = 1;
+        Float offset = abs(dot(local_hit_point, offset_frame.t) / denom); // should be between 0 and 1
+        clamp(offset, 0, 1); //Clamp the value to 1 because of floating point precision
+
         si.uv = Point2f(0, offset);
     }
 
@@ -1047,7 +1046,7 @@ public:
         return m_kdtree->bbox(index, clip);
     }
 
-    Float surface_area() const override{
+    ScalarFloat surface_area() const override{
         Log(LogLevel::Error, "HairShape::getSurfaceArea(): Not implemented.");
         return -1;
     }
