@@ -26,6 +26,8 @@ public:
 	MTS_IMPORT_BASE(BSDF, m_flags, m_components)
     MTS_IMPORT_TYPES(Texture)
 
+    using UInt = uint_array_t<Float>;
+
     HairBSDF(const Properties &props);
 
     enum Mode_sigma_a { Absorption, Reflectance, Concentration};
@@ -54,7 +56,7 @@ private:
     Float s;
     Float sin_2k_alpha[3], cos_2k_alpha[3];
 
-    MTS_INLINE Float sqr(Float v) const { return v * v; }
+    //MTS_INLINE Float sqr(Float v) const { return v * v; }
 
 	template <int n>
 	Float pow(Float v) const{
@@ -94,8 +96,9 @@ private:
         return Point2f{f};
     }
 
-    std::array<Spectrum, p_max + 1> Ap(Float cos_theta_i, Float eta, Float h, const Spectrum &T) const{
-	    std::array<Spectrum, p_max + 1> ap;
+    Array<Spectrum, p_max+1> Ap(Float cos_theta_i, Float eta, Float h, const Spectrum &T) const{
+	    //std::array<Spectrum, p_max + 1> ap;
+        Array<Spectrum, p_max+1> ap;
 	    // Compute $p=0$ attenuation at initial cylinder intersection
 	    Float cos_gamma_o = safe_sqrt(1 - h * h);
 	    Float cos_theta = cos_theta_i * cos_gamma_o;
@@ -114,7 +117,7 @@ private:
 	    return ap;
 	}
 
-	std::array<Float, p_max + 1> compute_ap_pdf(Float cos_theta_i, Float h, const SurfaceInteraction3f &si, Mask active) const {
+	Array<Float, p_max+1> compute_ap_pdf(Float cos_theta_i, Float h, const SurfaceInteraction3f &si, Mask active) const {
 	    // Compute array of $A_p$ values for _cosThetaO_
 	    Float sin_theta_i = safe_sqrt(1 - cos_theta_i * cos_theta_i);
 
@@ -130,14 +133,14 @@ private:
 	    // Compute the transmittance _T_ of a single path through the cylinder
 	    Spectrum T = exp(-evaluate_sigma_a(si, active) * (2.0f * cos_gamma_t / cos_theta_t));
 
-	    std::array<Spectrum, p_max + 1> ap = Ap(cos_theta_i, eta, h, T);
+	    Array<Spectrum, p_max+1> ap = Ap(cos_theta_i, eta, h, T);
 
 	    // Compute $A_p$ PDF from individual $A_p$ terms
-	    std::array<Float, p_max + 1> ap_pdf;
-	    Float sum_y =
-	        std::accumulate(ap.begin(), ap.end(), Float(0),
-	                        [](Float s, const Spectrum &ap) { return s + ap.y(); });
-	    for (int i = 0; i <= p_max; ++i) ap_pdf[i] = ap[i].y() / sum_y;
+	    Array<Float, p_max+1> ap_pdf;
+	    //Float sum_y = std::accumulate(ap.begin(), ap.end(), Float(0), [](Float s, const Spectrum &ap) { return s + ap.y(); });
+	    Float sum_y = hsum(ap_pdf);
+        //ap_pdf = ap / sum_y;
+        //for (int i = 0; i <= p_max; ++i) ap_pdf[i] = ap[i].y() / sum_y;
 	    return ap_pdf;
 	}
 
@@ -149,7 +152,7 @@ private:
 		return (math::Pi<ScalarFloat>/180.f) * deg;
 	}
 
-	void tilt_scales(Float sin_theta_i, Float cos_theta_i, int p, Float &sin_theta_op, Float &cos_theta_op) const{
+	void tilt_scales(Float sin_theta_i, Float cos_theta_i, UInt p, Float &sin_theta_op, Float &cos_theta_op) const{
 		if (p == 0) {
 	        sin_theta_op = sin_theta_i * cos_2k_alpha[1] - cos_theta_i * sin_2k_alpha[1];
 	        cos_theta_op = cos_theta_i * cos_2k_alpha[1] + sin_theta_i * sin_2k_alpha[1];

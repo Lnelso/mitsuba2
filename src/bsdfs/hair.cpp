@@ -71,7 +71,6 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
                                                                                                         Float sample1,
                                                                                                         const Point2f &sample2,
                                                                                                         Mask active) const {
-    using UInt = uint_array_t<Float>;
     MTS_MASKED_FUNCTION(ProfilerPhase::BSDFSample, active);
 
     BSDFSample3f bs = zero<BSDFSample3f>();
@@ -86,17 +85,18 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
     Point2f u[2] = {demux_float(sample2[0]), demux_float(sample2[1])}; //u2
 
     // Determine which term p to sample for hair scattering
-    std::array<Float, p_max + 1> ap_pdf = compute_ap_pdf(cos_theta_i, h, si, active);
+    //std::array<Float, p_max + 1> ap_pdf = compute_ap_pdf(cos_theta_i, h, si, active);
+    Array<Float, p_max+1> ap_pdf = compute_ap_pdf(cos_theta_i, h, si, active);
     //int p;
     UInt p = 0;
     Mask broken = true; 
     for(int i = 0; i < p_max; ++i){
         active = u[0][0] < ap_pdf[i];
-        masked(u[0][0], !active) -= ap_pdf[p];
+        masked(u[0][0], !active) -= ap_pdf[i];
         masked(broken, active) = true;
         masked(p, !active && !broken) += 1;
     }
-    
+
     /*
     for (p = 0; p < p_max; ++p) {
         if (u[0][0] < ap_pdf[p]) break;
@@ -184,7 +184,7 @@ Spectrum HairBSDF<Float, Spectrum>::eval(const BSDFContext &ctx, const SurfaceIn
     // Evaluate hair BSDF
     Float phi = phi_o - phi_i;
 
-    std::array<Spectrum, p_max + 1> ap = Ap(cos_theta_i, eta, h, T);
+    Array<Spectrum, p_max+1> ap = Ap(cos_theta_i, eta, h, T);
     Spectrum fsum(0.);
     for (int p = 0; p < p_max; ++p) {
         // Compute sin_theta_o and cos_theta_o terms accounting for scales
@@ -227,7 +227,7 @@ Float HairBSDF<Float, Spectrum>::pdf(const BSDFContext &ctx, const SurfaceIntera
     Float gamma_t = safe_asin(sin_gamma_t);
 
     // Compute PDF for Ap terms
-    std::array<Float, p_max + 1> ap_pdf = compute_ap_pdf(cos_theta_i, h, si, active);
+    Array<Float, p_max + 1> ap_pdf = compute_ap_pdf(cos_theta_i, h, si, active);
 
     // Compute PDF sum for hair scattering events
     Float phi = phi_o - phi_i;
