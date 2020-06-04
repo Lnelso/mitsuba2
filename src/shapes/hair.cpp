@@ -384,12 +384,11 @@ public:
     }
 
 #if MTS_HAIR_USE_FANCY_CLIPPING == 1
-    bool intersect_cyl_plane(Point plane_pt, Normal3f plane_nrml,
+    Mask intersect_cyl_plane(Point plane_pt, Normal3f plane_nrml,
             Point cyl_pt, Vector cyl_d, Float radius, Point &center,
             Vector *axes, Float *lengths) const {
-        
-        if (abs_dot(plane_nrml, cyl_d) < SINGLE_PRECISON_EPSILON)
-            return false;
+
+        Mask result = !(abs_dot(plane_nrml, cyl_d) < SINGLE_PRECISON_EPSILON);
 
         Vector B, A = cyl_d - dot(cyl_d, plane_nrml)*plane_nrml;
 
@@ -425,7 +424,8 @@ public:
         center = plane_pt + alpha0 * A + beta0 * B;
         axes[0] = A;
         axes[1] = B;
-        return true;
+
+        return result;
     }
 
     BoundingBox intersect_cyl_face(int axis,
@@ -508,9 +508,8 @@ public:
         Vector axes[2];
         Float lengths[2];
 
-        bool success = intersect_cyl_plane(first_vertex(iv), first_miter_normal(iv),
+        Mask success = intersect_cyl_plane(first_vertex(iv), first_miter_normal(iv),
                                          first_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-SINGLE_PRECISON_EPSILON), center, axes, lengths);
-        Assert(success);
 
         BoundingBox result;
         axes[0] *= lengths[0]; axes[1] *= lengths[1];
@@ -667,9 +666,8 @@ public:
         Point3d v2 = second_vertex(prim_index);
 
         double near_t, far_t, t = 0.0;
-        auto test = m_cylinder || std::abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < SINGLE_PRECISON_EPSILON;
-        auto coeffs = test ? intersect_cylinder(prim_index, ray_o, ray_d) :
-                             intersect_cone(prim_index, ray_o, ray_d);
+        auto coeffs = m_cylinder ? intersect_cylinder(prim_index, ray_o, ray_d) :
+                                   intersect_cone(prim_index, ray_o, ray_d);
         near_t = std::get<1>(coeffs);
         far_t = std::get<2>(coeffs);
 
@@ -910,11 +908,11 @@ public:
                         } else {
                             ScalarVector3f next_tangent = normalize(p - last_p);
                             auto radius_not_conform = !(props.has_property("radius") || props.has_property("base")) &&
-                                                        abs(radius_per_vertex[vertices.size()-1] - radius) < SINGLE_PRECISON_EPSILON;
-                            if (dot(next_tangent, tangent) > dp_thresh /*|| radius_not_conform*/) {
+                                                        abs(radius_per_vertex[vertices.size()-1] - radius) < 1e-5f;
+                            if (dot(next_tangent, tangent) > dp_thresh || radius_not_conform) {
                                 tangent = normalize(p - vertices[vertices.size()-2]);
                                 vertices[vertices.size()-1] = p;
-                                radius_per_vertex[vertices.size()-1] = radius;
+                                radius_per_vertex[vertices.size()-1] = radius; //Add enough to pass the condition?
                                 ++n_skipped;
                             } else {
                                 vertices.push_back(p);

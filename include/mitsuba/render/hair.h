@@ -59,25 +59,6 @@ private:
     Float s;
     Float sin_2k_alpha[3], cos_2k_alpha[3];
 
-    MTS_INLINE Float sqr(Float v) const { return v * v; }
-
-    template <int n>
-    Float pow(Float v) const{
-        static_assert(n > 0, "Power can't be negative");
-        Float n2 = pow<n / 2>(v);
-        return n2 * n2 * pow<n & 1>(v);
-    }
-
-    template <>
-    MTS_INLINE Float pow<1>(Float v) const{
-        return v;
-    }
-
-    template <>
-    MTS_INLINE Float pow<0>(__attribute__((unused)) Float v) const{
-        return 1;
-    }
-
     UInt32 compact_1_by_1(UInt32 x) const{
         // x = -f-e -d-c -b-a -9-8 -7-6 -5-4 -3-2 -1-0
         x &= 0x55555555;
@@ -116,7 +97,7 @@ private:
 
         // Compute attenuation term accounting for remaining orders of scattering
         ap[p_max] = ap[p_max - 1] * f * T / (Spectrum(1.f) - T * f);
-        //std::cout << "End ap" << std::endl;
+
         return ap;
     }
 
@@ -142,8 +123,9 @@ private:
         std::array<Float, p_max + 1> ap_pdf;
         Float sum_y =
             std::accumulate(ap.begin(), ap.end(), Float(0),
-                            [](Float s, const Spectrum &ap) { return s + ap.y(); });
-        for (int i = 0; i <= p_max; ++i) ap_pdf[i] = ap[i].y() / sum_y;
+                            [](Float s, const Spectrum &ap) { return s + luminance(ap); });
+
+        for (int i = 0; i <= p_max; ++i) ap_pdf[i] = luminance(ap[i]) / sum_y;
         return ap_pdf;
     }
 
@@ -152,7 +134,7 @@ private:
     }
 
     inline Float radians(Float deg) const{
-        return (math::Pi<ScalarFloat>/180.f) * deg;
+        return (Pi/180.f) * deg;
     }
 
     void tilt_scales(Float sin_theta_i, Float cos_theta_i, UInt p, Float &sin_theta_op, Float &cos_theta_op) const{
@@ -177,22 +159,13 @@ private:
         phi = atan2(w.z(), w.y());
     }
 
-    void print_basis(Vector3f w) const{
-        Float sin_theta, cos_theta, phi;
-        get_angles(w, sin_theta, cos_theta, phi);
-        
-        std::cout << "sin_theta: " << sin_theta << std::endl;
-        std::cout << "cos_theta: " << cos_theta << std::endl;
-        std::cout << "phi: " << phi << std::endl;
-    }
-
     Spectrum sigma_a_from_reflectance(const Spectrum &c, Float beta_n) const{
         Spectrum sigma_a;
         for (size_t i = 0; i < Spectrum::Size; ++i)
             sigma_a[i] = sqr(log(c[i]) /
                              (5.969f - 0.215f * beta_n + 2.532f * sqr(beta_n) -
-                              10.73f * pow<3>(beta_n) + 5.574f * pow<4>(beta_n) +
-                              0.245f * pow<5>(beta_n)));
+                              10.73f * pow(beta_n, 3) + 5.574f * pow(beta_n, 4) +
+                              0.245f * pow(beta_n, 5)));
         return sigma_a;
     }
 
