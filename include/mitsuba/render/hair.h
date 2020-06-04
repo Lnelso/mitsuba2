@@ -26,6 +26,10 @@ public:
 	MTS_IMPORT_BASE(BSDF, m_flags, m_components)
     MTS_IMPORT_TYPES(Texture)
 
+    using UInt = uint_array_t<Float>;
+
+    Float Pi = math::Pi<Float>;
+
     HairBSDF(const Properties &props);
 
     enum Mode_sigma_a { Absorption, Reflectance, Concentration};
@@ -43,7 +47,8 @@ public:
     std::string to_string() const override;
 
 private:
-    Float /*h, gamma_o,*/ eta;
+    Float h_xml;
+    Float eta;
     Mode_sigma_a mode;
     ref<Texture> sigma_a;
     ref<Texture> sigma_a_reflectance;
@@ -73,7 +78,7 @@ private:
 	    return 1;
 	}
 
-    uint32_t compact_1_by_1(uint32_t x) const{
+    UInt32 compact_1_by_1(UInt32 x) const{
         // x = -f-e -d-c -b-a -9-8 -7-6 -5-4 -3-2 -1-0
         x &= 0x55555555;
         // x = --fe --dc --ba --98 --76 --54 --32 --10
@@ -88,14 +93,14 @@ private:
     }
 
     Point2f demux_float(Float f) const{
-        //uint64_t v = f * (1ull << 32);
-        //uint32_t bits[2] = {compact_1_by_1(v), compact_1_by_1(v >> 1)};
-        //return {bits[0] / Float(1 << 16), bits[1] / Float(1 << 16)};
-        return Point2f{f};
+        UInt64 v =  f * (1ull << 32);
+        UInt32 bits[2] = {compact_1_by_1(v), compact_1_by_1(v >> 1)};
+        return {bits[0] / Float(1 << 16), bits[1] / Float(1 << 16)};
     }
 
     std::array<Spectrum, p_max + 1> Ap(Float cos_theta_i, Float eta, Float h, const Spectrum &T) const{
 	    std::array<Spectrum, p_max + 1> ap;
+
 	    // Compute $p=0$ attenuation at initial cylinder intersection
 	    Float cos_gamma_o = safe_sqrt(1 - h * h);
 	    Float cos_theta = cos_theta_i * cos_gamma_o;
@@ -111,6 +116,7 @@ private:
 
 	    // Compute attenuation term accounting for remaining orders of scattering
 	    ap[p_max] = ap[p_max - 1] * f * T / (Spectrum(1.f) - T * f);
+        //std::cout << "End ap" << std::endl;
 	    return ap;
 	}
 
@@ -149,21 +155,20 @@ private:
 		return (math::Pi<ScalarFloat>/180.f) * deg;
 	}
 
-	void tilt_scales(Float sin_theta_i, Float cos_theta_i, int p, Float &sin_theta_op, Float &cos_theta_op) const{
-		if (p == 0) {
-	        sin_theta_op = sin_theta_i * cos_2k_alpha[1] - cos_theta_i * sin_2k_alpha[1];
-	        cos_theta_op = cos_theta_i * cos_2k_alpha[1] + sin_theta_i * sin_2k_alpha[1];
-	    }
-	    else if (p == 1) {
-	        sin_theta_op = sin_theta_i * cos_2k_alpha[0] + cos_theta_i * sin_2k_alpha[0];
-	        cos_theta_op = cos_theta_i * cos_2k_alpha[0] - sin_theta_i * sin_2k_alpha[0];
-	    } else if (p == 2) {
-	        sin_theta_op = sin_theta_i * cos_2k_alpha[2] + cos_theta_i * sin_2k_alpha[2];
-	        cos_theta_op = cos_theta_i * cos_2k_alpha[2] - sin_theta_i * sin_2k_alpha[2];
-	    } else {
-	        sin_theta_op = sin_theta_i;
-	        cos_theta_op = cos_theta_i;
-	    }
+	void tilt_scales(Float sin_theta_i, Float cos_theta_i, UInt p, Float &sin_theta_op, Float &cos_theta_op) const{
+        Mask mask = p == 0, mask1 = p == 1, mask2 = p == 2;
+
+        masked(sin_theta_op, mask) = sin_theta_i * cos_2k_alpha[1] - cos_theta_i * sin_2k_alpha[1];
+        masked(cos_theta_op, mask) = cos_theta_i * cos_2k_alpha[1] + sin_theta_i * sin_2k_alpha[1];
+
+        masked(sin_theta_op, mask1) =  sin_theta_i * cos_2k_alpha[0] + cos_theta_i * sin_2k_alpha[0];
+        masked(cos_theta_op, mask1) = cos_theta_i * cos_2k_alpha[0] - sin_theta_i * sin_2k_alpha[0];
+
+        masked(sin_theta_op, mask2) = sin_theta_i * cos_2k_alpha[2] + cos_theta_i * sin_2k_alpha[2];
+        masked(cos_theta_op, mask2) = cos_theta_i * cos_2k_alpha[2] - sin_theta_i * sin_2k_alpha[2];
+
+        masked(sin_theta_op, !mask && !mask1 && !mask2) = sin_theta_i;
+        masked(cos_theta_op, !mask && !mask1 && !mask2) = cos_theta_i;
 	}
 
 	void get_angles(const Vector3f &w, Float &sin_theta, Float &cos_theta, Float &phi) const{

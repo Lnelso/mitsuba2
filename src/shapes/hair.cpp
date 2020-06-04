@@ -609,14 +609,24 @@ public:
         return (Size) m_segment_count;
     }
 
-//http://lousodrome.net/blog/light/2017/01/03/intersection-of-a-ray-and-a-cone/
-    MTS_INLINE std::pair<Mask, Float> intersect_prim(Index prim_index, const Ray3f &ray,
-                                                 Float *cache, Mask active) const {
-        ENOKI_MARK_USED(active);
-
+    MTS_INLINE std::tuple<double, double, double> intersect_cylinder(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
         Vector3d axis = tangent(prim_index);
-        Point3d ray_o(ray.o);
-        Vector3d ray_d(ray.d);
+
+        Point3d v1 = first_vertex(prim_index);
+
+        Vector3d rel_origin = ray_o - v1;
+        Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
+
+        Vector3d proj_direction = ray_d - dot(axis, ray_d) * axis;
+        double A = squared_norm(proj_direction);
+        double B = 2 * dot(proj_origin, proj_direction);
+        double C = squared_norm(proj_origin) - sqr((double)m_radius_per_vertex[prim_index]);
+
+        return math::solve_quadratic<double>(A, B, C);
+    }
+
+    MTS_INLINE std::tuple<double, double, double> intersect_cone(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
+        Vector3d axis = tangent(prim_index);
 
         Point3d v1 = first_vertex(prim_index);
         Point3d v2 = second_vertex(prim_index);
@@ -624,35 +634,42 @@ public:
         Vector3d rel_origin = ray_o - v1;
         Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
 
-        double A, B, C;
-        active = abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < SINGLE_PRECISON_EPSILON;
-        if(abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < SINGLE_PRECISON_EPSILON){
-            Vector3d proj_direction = ray_d - dot(axis, ray_d) * axis;
-            A = squared_norm(proj_direction);
-            B = 2 * dot(proj_origin, proj_direction);
-            C = squared_norm(proj_origin) - (double)m_radius_per_vertex[prim_index]*(double)m_radius_per_vertex[prim_index];
-        } else{
-            Point3d p_circle_v1 = v1 + (double)m_radius_per_vertex[prim_index] * normalize(proj_origin);
-            Point3d p_circle_v2 = v2 + (double)m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
-            Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
+        Point3d p_circle_v1 = v1 + (double)m_radius_per_vertex[prim_index] * normalize(proj_origin);
+        Point3d p_circle_v2 = v2 + (double)m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
+        Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
 
-            double cos_theta = dot(normalized_edge, axis);
-            double square_cos_theta = sqr(cos_theta);
-            double sin_theta = sqrt(1 - square_cos_theta);
+        double cos_theta = dot(normalized_edge, axis);
+        double square_cos_theta = sqr(cos_theta);
+        double sin_theta = sqrt(1 - square_cos_theta);
 
-            Point3d cone_top = v1 + ((double)m_radius_per_vertex[prim_index] * cos_theta / sin_theta) * axis;
-            Vector3d center_origin = ray_o - cone_top;
+        Point3d cone_top = v1 + ((double)m_radius_per_vertex[prim_index] * cos_theta / sin_theta) * axis;
+        Vector3d center_origin = ray_o - cone_top;
 
-            double d_dot_axis = dot(ray_d, -axis); 
-            double center_origin_dot_axis = dot(center_origin, -axis);
+        double d_dot_axis = dot(ray_d, -axis); 
+        double center_origin_dot_axis = dot(center_origin, -axis);
 
-            A = sqr(d_dot_axis) - square_cos_theta;
-            B = 2 * (d_dot_axis * center_origin_dot_axis - dot(ray_d, center_origin) * square_cos_theta);
-            C = sqr(center_origin_dot_axis) - dot(center_origin, center_origin) * square_cos_theta;
-        }
+        double A = sqr(d_dot_axis) - square_cos_theta;
+        double B = 2 * (d_dot_axis * center_origin_dot_axis - dot(ray_d, center_origin) * square_cos_theta);
+        double C = sqr(center_origin_dot_axis) - dot(center_origin, center_origin) * square_cos_theta;
+
+        return math::solve_quadratic<double>(A, B, C);
+    }
+
+//http://lousodrome.net/blog/light/2017/01/03/intersection-of-a-ray-and-a-cone/
+    MTS_INLINE std::pair<Mask, Float> intersect_prim(Index prim_index, const Ray3f &ray,
+                                                 Float *cache, Mask active) const {
+        ENOKI_MARK_USED(active);
+
+        Point3d ray_o(ray.o);
+        Vector3d ray_d(ray.d);
+
+        Point3d v1 = first_vertex(prim_index);
+        Point3d v2 = second_vertex(prim_index);
 
         double near_t, far_t, t = 0.0;
-        auto coeffs = math::solve_quadratic<double>(A, B, C);
+        auto test = m_cylinder || std::abs(m_radius_per_vertex[prim_index] - m_radius_per_vertex[prim_index+1]) < SINGLE_PRECISON_EPSILON;
+        auto coeffs = test ? intersect_cylinder(prim_index, ray_o, ray_d) :
+                             intersect_cone(prim_index, ray_o, ray_d);
         near_t = std::get<1>(coeffs);
         far_t = std::get<2>(coeffs);
 
@@ -892,7 +909,9 @@ public:
                             last_p = p;
                         } else {
                             ScalarVector3f next_tangent = normalize(p - last_p);
-                            if (dot(next_tangent, tangent) > dp_thresh) {
+                            auto radius_not_conform = !(props.has_property("radius") || props.has_property("base")) &&
+                                                        abs(radius_per_vertex[vertices.size()-1] - radius) < SINGLE_PRECISON_EPSILON;
+                            if (dot(next_tangent, tangent) > dp_thresh /*|| radius_not_conform*/) {
                                 tangent = normalize(p - vertices[vertices.size()-2]);
                                 vertices[vertices.size()-1] = p;
                                 radius_per_vertex[vertices.size()-1] = radius;
@@ -967,8 +986,13 @@ public:
 
     void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
         ENOKI_MARK_USED(active);
+        
+        Index iv; //TODO: should be an index?
+        if constexpr (!is_array_v<Index>)
+            iv = cache[1];
+        else
+            iv = reinterpret_array<Index>(cache[1]);
 
-        Index iv = reinterpret_array<Index>(cache[1]);
         si.p[0] = cache[2];
         si.p[1] = cache[3];
         si.p[2] = cache[4];
@@ -978,7 +1002,7 @@ public:
 
         Point3f v1 = m_kdtree->first_vertex(iv); 
         Point3f v2 = m_kdtree->second_vertex(iv);
-        Vector3f rel_hit_point = si.p - v1;        
+        Vector3f rel_hit_point = si.p - v1;
         si.n = normalize(rel_hit_point - dot(axis, rel_hit_point) * axis);
 
         //If the primitive is a cone, compute opening angle and rotate the normal
@@ -992,10 +1016,9 @@ public:
             Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
             Float cos_theta = dot(normalized_edge, axis); //TODO: why it was double?
             active = cos_theta > -1.f && cos_theta <= 1;
-            masked(si.n, active) = Transform4f::rotate(axis, -(acos(cos_theta) * 180.0 / M_PI)) * si.n;
+            masked(si.n, active) = Transform4f::rotate(axis, -(acos(cos_theta) * 180.0f / (Float)M_PI)) * si.n;
         }
 
-        //TODO: modify for cone
         Frame3f frame = Frame3f(si.n);
         frame.s = axis;
         frame.t = cross(frame.n, frame.s);
@@ -1005,7 +1028,7 @@ public:
         Float delta_radius = m_kdtree->radius(iv) - m_kdtree->radius(iv + 1);
         Float radius_at_p = m_kdtree->radius(iv) - (dot(rel_hit_point, axis) / norm(v2 - v1)) * delta_radius;
         active = abs(m_kdtree->radius(iv) - m_kdtree->radius(iv+1)) < SINGLE_PRECISON_EPSILON;
-        masked(si.p, active) += si.n * ( radius_at_p - sqrt(local.y()*local.y()+local.z()*local.z()));
+        masked(si.p, active) += si.n * (radius_at_p - sqrt(local.y()*local.y()+local.z()*local.z()));
         masked(si.p, !active) += si.n * (m_kdtree->radius(iv) - sqrt(local.y()*local.y()+local.z()*local.z()));
 
         si.sh_frame.n = si.n;
@@ -1024,9 +1047,7 @@ public:
         Vector3f center = v1 + axis * dot(rel_hit_point, axis);
         Vector3f local_hit_point = offset_frame.to_local(si.p - center);
 
-        Float denom;
-        masked(denom, active) = m_kdtree->radius(iv);
-        masked(denom, !active) = radius_at_p;
+        Float denom = select(active, m_kdtree->radius(iv), radius_at_p);
 
         Float offset = abs(dot(local_hit_point, offset_frame.t) / denom); // should be between 0 and 1
         clamp(offset, 0, 1); //Clamp the value to 1 because of floating point precision

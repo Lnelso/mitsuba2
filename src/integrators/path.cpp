@@ -116,11 +116,11 @@ public:
         Spectrum throughput(1.f), result(0.f);
 
         // ---------------------- First intersection ----------------------
-
+        //std::cout << "before intersect" << std::endl;
         SurfaceInteraction3f si = scene->ray_intersect(ray, active);
         Mask valid_ray = si.is_valid();
         EmitterPtr emitter = si.emitter(scene);
-
+        //std::cout << "after intersect: " << valid_ray << std::endl;
         for (int depth = 1;; ++depth) {
 
             // ---------------- Intersection with emitters ----------------
@@ -167,21 +167,7 @@ public:
                 // Query the BSDF for that emitter-sampled direction
                 Vector3f wo = si.to_local(ds.d);
                 Spectrum bsdf_val = bsdf->eval(ctx, si, wo, active_e);
-                for (int i=0; i<3; ++i) {
-                    /*if ((!std::isfinite(bsdf_val[i]) || bsdf_val[i] < 0)){
-                        std::cout << "bsdf_val: " << bsdf_val << std::endl;
-                        std::cout << "cos_theta_wi: " << Frame3f::cos_theta(si.wi) << std::endl;
-                        std::cout << "cos_theta_wo: " << Frame3f::cos_theta(wo) << std::endl;
-                        Log(LogLevel::Error, "Stop bsdf eval.");
-                    }*/
-                }
                 bsdf_val = si.to_world_mueller(bsdf_val, -wo, si.wi);
-                /*for (int i=0; i<3; ++i) {
-                    if ((!std::isfinite(bsdf_val[i]) || bsdf_val[i] < 0)){
-                        std::cout << "bsdf_val: " << bsdf_val << std::endl;
-                        Log(LogLevel::Error, "Stop bsdf to world mueller.");
-                    }
-                }*/
 
                 // Determine density of sampling that same direction using BSDF sampling
                 Float bsdf_pdf = bsdf->pdf(ctx, si, wo, active_e);
