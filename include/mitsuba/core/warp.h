@@ -717,8 +717,9 @@ Float Mp(Float cos_theta_i, Float cos_theta_o, Float sin_theta_i, Float sin_thet
                   (exp(-b) * detail::i0(a)) / (sinh(1 / v) * 2 * v));
 }
 
+
 template <typename Float>
-MTS_INLINE Float Phi(int p, Float gamma_o, Float gamma_t){
+MTS_INLINE Float Phi(uint_array_t<Float> p, Float gamma_o, Float gamma_t){
     return 2 * p * gamma_t - 2 * gamma_o + p * math::Pi<Float>;
 }
 
@@ -743,10 +744,18 @@ MTS_INLINE Float Np(Float phi, int p, Float s, Float gamma_o, Float gamma_t){
     using Mask   = mask_t<Float>;
 
     Float dphi = phi - Phi(p, gamma_o, gamma_t);
+    
     Mask active = dphi > math::Pi<Float>;
-    while(any(active)) masked(dphi, active) -= 2 * math::Pi<Float>;
+    while(any(active)){
+        masked(dphi, active) -= 2 * math::Pi<Float>;
+        active = dphi > math::Pi<Float>;
+    }
+
     active = dphi < -math::Pi<Float>;
-    while(any(active)) masked(dphi, active) += 2 * math::Pi<Float>;
+    while(any(active)) {
+        masked(dphi, active) += 2 * math::Pi<Float>;
+        active = dphi < -math::Pi<Float>;
+    }
 
     return trimmed_logistic<Float>(dphi, s, -math::Pi<Float>, math::Pi<Float>);
 }
