@@ -24,9 +24,6 @@
 
 #define MTS_HAIR_USE_FANCY_CLIPPING 1
 #define MTS_KD_AABB_EPSILON 1e-3f
-#define HAIR_EPS 1e-7f
-#define SINGLE_PRECISON_EPSILON 1e-4f
-
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -61,6 +58,9 @@ public:
     using Vector = typename Base::Point;
     using BoundingBox = typename Base::BoundingBox;
     using Scalar = typename Base::Scalar;
+
+    Float HairEpsilon = scalar_t<Float>(sizeof(scalar_t<Float>) == 8
+                                        ? 1e-7 : 1e-4);
 
     HairKDTree(const Properties &props, std::vector<Point> &vertices,
                std::vector<bool> &vertex_starts_fiber, std::vector<Float> radius_per_vertex, bool cylinder)
@@ -388,12 +388,12 @@ public:
             Point cyl_pt, Vector cyl_d, Float radius, Point &center,
             Vector *axes, Float *lengths) const {
 
-        Mask result = !(abs_dot(plane_nrml, cyl_d) < SINGLE_PRECISON_EPSILON);
+        Mask result = !(abs_dot(plane_nrml, cyl_d) < HairEpsilon);
 
         Vector B, A = cyl_d - dot(cyl_d, plane_nrml)*plane_nrml;
 
         Float length = norm(A);
-        if (length > SINGLE_PRECISON_EPSILON && plane_nrml != cyl_d) {
+        if (length > HairEpsilon && plane_nrml != cyl_d) {
             A /= length;
             B = cross(plane_nrml, A);
         } else {
@@ -443,7 +443,7 @@ public:
         Float ellipse_lengths[2];
 
         BoundingBox aabb;
-        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, m_radius_per_vertex[iv] * (1 + SINGLE_PRECISON_EPSILON),
+        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, m_radius_per_vertex[iv] * (1 + HairEpsilon),
                                ellipse_center, ellipse_axes, ellipse_lengths)) {
             return aabb;
         }
@@ -509,7 +509,7 @@ public:
         Float lengths[2];
 
         Mask success = intersect_cyl_plane(first_vertex(iv), first_miter_normal(iv),
-                                         first_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-SINGLE_PRECISON_EPSILON), center, axes, lengths);
+                                         first_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-HairEpsilon), center, axes, lengths);
 
         BoundingBox result;
         axes[0] *= lengths[0]; axes[1] *= lengths[1];
@@ -520,7 +520,7 @@ public:
         }
 
         success = intersect_cyl_plane(second_vertex(iv), second_miter_normal(iv),
-                                    second_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-SINGLE_PRECISON_EPSILON), center, axes, lengths);
+                                    second_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-HairEpsilon), center, axes, lengths);
         Assert(success);
 
         axes[0] *= lengths[0]; axes[1] *= lengths[1];
@@ -583,7 +583,7 @@ public:
         const Float cos0 = dot(first_miter_normal(iv), tangent(iv));
         const Float cos1 = dot(second_miter_normal(iv), tangent(iv));
         const Float max_inv_cos = 1.0f / (Float)enoki::min(cos0, cos1);
-        const Float max = enoki::max(m_radius_per_vertex[iv], m_radius_per_vertex[iv+1]);
+        const Float max = m_radius_per_vertex[iv];
         const Vector expand_vec(max * max_inv_cos);
 
         const Point a = first_vertex(iv);
@@ -757,6 +757,9 @@ public:
     using ScalarIndex = typename Base::ScalarIndex;
     using PCG32 = mitsuba::PCG32<UInt32>;
 
+    Float HairEpsilon = scalar_t<Float>(sizeof(scalar_t<Float>) == 8
+                                        ? 1e-7 : 1e-4);
+
     HairShape(const Properties &props) : Base(props) {
         FileResolver *fs = Thread::thread()->file_resolver();
         fs::path file_path = fs->resolve(props.string("filename"));
@@ -775,7 +778,7 @@ public:
             default_radius *= correction;
         }
         ScalarFloat radius = default_radius;
-        std::unique_ptr<PCG32> rng = std::make_unique<PCG32>(); //TODO: Is it the correct way to do it?
+        std::unique_ptr<PCG32> rng = std::make_unique<PCG32>();
 
         ScalarTransform4f object_to_world = props.transform("to_world");
 
@@ -985,7 +988,7 @@ public:
     void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
         ENOKI_MARK_USED(active);
         
-        Index iv; //TODO: should be an index?
+        Index iv;
         if constexpr (!is_array_v<Index>)
             iv = cache[1];
         else
@@ -1012,7 +1015,7 @@ public:
             Point3f p_circle_v2 = v2 + m_kdtree->radius(iv+1) * proj_origin;
 
             Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
-            Float cos_theta = dot(normalized_edge, axis); //TODO: why it was double?
+            Float cos_theta = dot(normalized_edge, axis);
             active = cos_theta > -1.f && cos_theta <= 1;
             masked(si.n, active) = Transform4f::rotate(axis, -(acos(cos_theta) * 180.0f / (Float)M_PI)) * si.n;
         }
@@ -1025,7 +1028,7 @@ public:
        
         Float delta_radius = m_kdtree->radius(iv) - m_kdtree->radius(iv + 1);
         Float radius_at_p = m_kdtree->radius(iv) - (dot(rel_hit_point, axis) / norm(v2 - v1)) * delta_radius;
-        active = abs(m_kdtree->radius(iv) - m_kdtree->radius(iv+1)) < SINGLE_PRECISON_EPSILON;
+        active = abs(m_kdtree->radius(iv) - m_kdtree->radius(iv+1)) < HairEpsilon;
         masked(si.p, active) += si.n * (radius_at_p - sqrt(local.y()*local.y()+local.z()*local.z()));
         masked(si.p, !active) += si.n * (m_kdtree->radius(iv) - sqrt(local.y()*local.y()+local.z()*local.z()));
 

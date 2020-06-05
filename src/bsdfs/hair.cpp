@@ -36,7 +36,7 @@ HairBSDF<Float, Spectrum>::HairBSDF(const Properties &props) : Base(props) {
         Log(LogLevel::Error, "A hair color need to be specified either through absorption, reflectance or eumelanin concentration");
     }
 
-    eta = props.float_("eta", 1.55f); //TODO: props.texture<Texture>("eta", 1.55.f); 
+    eta = props.float_("eta", 1.55f); 
 
     // Compute longitudinal variance from beta_m
     static_assert( p_max >= 3, "do not handle low p_max");

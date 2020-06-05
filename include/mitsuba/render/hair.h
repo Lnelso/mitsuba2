@@ -82,17 +82,17 @@ private:
     std::array<Spectrum, p_max + 1> Ap(Float cos_theta_i, Float eta, Float h, const Spectrum &T) const{
         std::array<Spectrum, p_max + 1> ap;
 
-        // Compute $p=0$ attenuation at initial cylinder intersection
+        // Compute p=0 attenuation at initial cylinder intersection
         Float cos_gamma_o = safe_sqrt(1 - h * h);
         Float cos_theta = cos_theta_i * cos_gamma_o;
         auto res = fresnel(cos_theta, eta); //F, cos_theta_t, eta_it, eta_ti
         Float f = std::get<0>(res);
         ap[0] = f;
 
-        // Compute $p=1$ attenuation term
+        // Compute p=1 attenuation term
         ap[1] = sqr(1 - f) * T;
 
-        // Compute attenuation terms up to $p=_pMax_$
+        // Compute attenuation terms up to p= p_max
         for (int p = 2; p < p_max; ++p) ap[p] = ap[p - 1] * T * f;
 
         // Compute attenuation term accounting for remaining orders of scattering
@@ -102,30 +102,30 @@ private:
     }
 
     std::array<Float, p_max + 1> compute_ap_pdf(Float cos_theta_i, Float h, const SurfaceInteraction3f &si, Mask active) const {
-        // Compute array of $A_p$ values for _cosThetaO_
+        // Compute array of Ap values for cos_theta_i
         Float sin_theta_i = safe_sqrt(1 - cos_theta_i * cos_theta_i);
 
-        // Compute $\cos \thetat$ for refracted ray
+        // Compute cos_theta_t for refracted ray
         Float sin_theta_t = sin_theta_i / eta;
         Float cos_theta_t = safe_sqrt(1 - sqr(sin_theta_t));
 
-        // Compute $\gammat$ for refracted ray
+        // Compute gamma_t for refracted ray
         Float etap = sqrt(eta * eta - sqr(sin_theta_i)) / cos_theta_i;
         Float sin_gamma_t = h / etap;
         Float cos_gamma_t = safe_sqrt(1 - sqr(sin_gamma_t));
 
-        // Compute the transmittance _T_ of a single path through the cylinder
+        // Compute the transmittance T of a single path through the cylinder
         Spectrum T = exp(-evaluate_sigma_a(si, active) * (2.0f * cos_gamma_t / cos_theta_t));
 
         std::array<Spectrum, p_max + 1> ap = Ap(cos_theta_i, eta, h, T);
 
-        // Compute $A_p$ PDF from individual $A_p$ terms
+        // Compute Ap PDF from individual Ap terms
         std::array<Float, p_max + 1> ap_pdf;
-        Float sum_y =
+        Float sum_luminance =
             std::accumulate(ap.begin(), ap.end(), Float(0),
                             [](Float s, const Spectrum &ap) { return s + luminance(ap); });
 
-        for (int i = 0; i <= p_max; ++i) ap_pdf[i] = luminance(ap[i]) / sum_y;
+        for (int i = 0; i <= p_max; ++i) ap_pdf[i] = luminance(ap[i]) / sum_luminance;
         return ap_pdf;
     }
 
