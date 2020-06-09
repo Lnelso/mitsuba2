@@ -36,6 +36,8 @@ public:
     using SurfaceAreaHeuristic3f = SurfaceAreaHeuristic3<ScalarFloat>;
     using Size                   = uint32_t;
     using Index                  = uint32_t;
+    //using Double                 = Packet<Float64>;
+    using Double                 = replace_scalar_t<Float, double>;
 
     using Base = TShapeKDTree<ScalarBoundingBox3f, uint32_t, SurfaceAreaHeuristic3f, HairKDTree>;
     using typename Base::KDNode;
@@ -353,7 +355,7 @@ public:
                         Mask prim_hit;
                         Float prim_t;
                         std::tie(prim_hit, prim_t) =
-                            intersect_prim(prim_index, ray, cache, active);
+                            intersect_prim_packet(prim_index, ray, cache, active);
 
                         if (!ShadowRay) {
                             Assert(all(!prim_hit || (prim_t >= ray.mint && prim_t <= ray.maxt)));
@@ -624,6 +626,22 @@ public:
         return math::solve_quadratic<double>(A, B, C);
     }
 
+    MTS_INLINE std::tuple<mask_t<Double>, Double, Double> intersect_cylinder_packet(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
+        Vector3d axis = tangent(prim_index);
+
+        Point3d v1 = first_vertex(prim_index);
+
+        Vector3d rel_origin = ray_o - v1;
+        Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
+
+        Vector3d proj_direction = ray_d - dot(axis, ray_d) * axis;
+        Double A = squared_norm(proj_direction);
+        Double B = 2 * dot(proj_origin, proj_direction);
+        Double C = squared_norm(proj_origin) - sqr((Double)m_radius_per_vertex[prim_index]);
+
+        return math::solve_quadratic<Float64>(A, B, C);
+    }
+
     MTS_INLINE std::tuple<double, double, double> intersect_cone(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
         Vector3d axis = tangent(prim_index);
 
@@ -654,9 +672,39 @@ public:
         return math::solve_quadratic<double>(A, B, C);
     }
 
-//http://lousodrome.net/blog/light/2017/01/03/intersection-of-a-ray-and-a-cone/
-    MTS_INLINE std::pair<Mask, Float> intersect_prim(Index prim_index, const Ray3f &ray,
-                                                 Float *cache, Mask active) const {
+    MTS_INLINE std::tuple<mask_t<Double>, Double, Double> intersect_cone_packet(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
+        Vector3d axis = tangent(prim_index);
+
+        Point3d v1 = first_vertex(prim_index);
+        Point3d v2 = second_vertex(prim_index);
+
+        Vector3d rel_origin = ray_o - v1;
+        Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
+
+        Point3d p_circle_v1 = v1 + (Float64)m_radius_per_vertex[prim_index] * normalize(proj_origin);
+        Point3d p_circle_v2 = v2 + (Float64)m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
+        Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
+
+        Double cos_theta = dot(normalized_edge, axis);
+        Double square_cos_theta = sqr(cos_theta);
+        Double sin_theta = sqrt(1 - square_cos_theta);
+
+        Point3d cone_top = v1 + ((Float64)m_radius_per_vertex[prim_index] * cos_theta / sin_theta) * axis;
+        Vector3d center_origin = ray_o - cone_top;
+
+        Double d_dot_axis = dot(ray_d, -axis); 
+        Double center_origin_dot_axis = dot(center_origin, -axis);
+
+        Double A = sqr(d_dot_axis) - square_cos_theta;
+        Double B = 2 * (d_dot_axis * center_origin_dot_axis - dot(ray_d, center_origin) * square_cos_theta);
+        Double C = sqr(center_origin_dot_axis) - dot(center_origin, center_origin) * square_cos_theta;
+
+        return math::solve_quadratic<Float64>(A, B, C);
+    }
+
+    //http://lousodrome.net/blog/light/2017/01/03/intersection-of-a-ray-and-a-cone/
+
+    MTS_INLINE std::pair<Mask, Float> intersect_prim(Index prim_index, const Ray3f &ray, Float *cache, Mask active) const {
         ENOKI_MARK_USED(active);
 
         Point3d ray_o(ray.o);
@@ -704,6 +752,59 @@ public:
         }
 
         return std::make_pair(true, (Float)t);
+    }
+
+    MTS_INLINE std::pair<Mask, Float> intersect_prim_packet(Index prim_index, const Ray3f &ray,
+                                                            Float *cache, Mask active) const {
+        ENOKI_MARK_USED(active);
+
+        Point3d ray_o(ray.o);
+        Vector3d ray_d(ray.d);
+
+        Point3d v1 = first_vertex(prim_index);
+        Point3d v2 = second_vertex(prim_index);
+
+        Mask intersected = true;
+        Double near_t, far_t, t = 0.0;
+        std::tuple<mask_t<Double>, Double, Double> coeffs;
+        active = m_cylinder;
+        //masked(coeffs, active) = intersect_cylinder_packet(prim_index, ray_o, ray_d);
+        //masked(coeffs, !active) = intersect_cone_packet(prim_index, ray_o, ray_d);
+
+        near_t = std::get<1>(coeffs);
+        far_t = std::get<2>(coeffs);
+
+        mask_t<Double> found_sol = !std::get<0>(coeffs);
+        intersected &= !found_sol;
+
+        active = !(near_t <= ray.maxt && far_t >= ray.mint);
+        intersected &= !active;
+
+        Point3d point_near = ray_o + ray_d * near_t;
+        Point3d point_far = ray_o + ray_d * far_t;
+
+        Vector3d n1 = first_miter_normal(prim_index);
+        Vector3d n2 = second_miter_normal(prim_index);
+        Point3d p;
+
+        active = dot(point_near - v1, n1) >= 0 && dot(point_near - v2, n2) <= 0 && near_t >= ray.mint;
+        masked(t, active) = near_t;
+        masked(p, active) = Point3d(ray_o + ray_d * near_t);
+        intersected &= !active;
+
+        active = dot(point_far - v1, n1) >= 0 && dot(point_far - v2, n2) <= 0;
+        masked(t, active) = far_t;
+        masked(p, active) = Point3d(ray_o + ray_d * far_t);
+        intersected &= !active;
+
+        if (cache) {
+            cache[1] = prim_index;
+            cache[2] = p.x();
+            cache[3] = p.y();
+            cache[4] = p.z();
+        }
+
+        return std::make_pair(intersected, t);
     }
 
     /* Some utility functions */
@@ -910,9 +1011,9 @@ public:
                             last_p = p;
                         } else {
                             ScalarVector3f next_tangent = normalize(p - last_p);
-                            auto radius_not_conform = !(props.has_property("radius") || props.has_property("base")) &&
-                                                        abs(radius_per_vertex[vertices.size()-1] - radius) < 1e-5f;
-                            if (dot(next_tangent, tangent) > dp_thresh || radius_not_conform) {
+                            /*auto radius_not_conform = !(props.has_property("radius") || props.has_property("base")) &&
+                                                        abs(radius_per_vertex[vertices.size()-1] - radius) < 1e-5f;*/
+                            if (dot(next_tangent, tangent) > dp_thresh /*|| radius_not_conform*/) {
                                 tangent = normalize(p - vertices[vertices.size()-2]);
                                 vertices[vertices.size()-1] = p;
                                 radius_per_vertex[vertices.size()-1] = radius; //Add enough to pass the condition?
@@ -988,12 +1089,12 @@ public:
     void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
         ENOKI_MARK_USED(active);
         
-        Index iv;
-        if constexpr (!is_array_v<Index>)
+        UInt32 iv;
+        if constexpr (!is_array_v<Float>)
             iv = cache[1];
         else
-            iv = reinterpret_array<Index>(cache[1]);
-
+            iv = reinterpret_array<UInt32>(cache[1]);
+        
         si.p[0] = cache[2];
         si.p[1] = cache[3];
         si.p[2] = cache[4];
