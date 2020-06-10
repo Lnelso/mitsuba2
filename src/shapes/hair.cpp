@@ -140,6 +140,10 @@ public:
         return m_radius_per_vertex[iv];
     }
 
+    MTS_INLINE Double radius_double(Index iv) const {
+        return (Double)m_radius_per_vertex[iv];
+    }
+
     MTS_INLINE Float radiuses(Indices iv) const {
         return gather<Float>(m_radius_per_vertex.data(), iv);
     }
@@ -615,23 +619,7 @@ public:
         return (Size) m_segment_count;
     }
 
-    MTS_INLINE std::tuple<bool, double, double> intersect_cylinder(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
-        Vector3d axis = tangent_double(prim_index);
-
-        Point3d v1 = first_vertex_double(prim_index);
-
-        Vector3d rel_origin = ray_o - v1;
-        Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
-
-        Vector3d proj_direction = ray_d - dot(axis, ray_d) * axis;
-        double A = squared_norm(proj_direction);
-        double B = 2 * dot(proj_origin, proj_direction);
-        double C = squared_norm(proj_origin) - sqr((double)m_radius_per_vertex[prim_index]);
-
-        return math::solve_quadratic<double>(A, B, C);
-    }
-
-    MTS_INLINE std::tuple<mask_t<Double>, Double, Double> intersect_cylinder_packet(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
+    MTS_INLINE std::tuple<mask_t<Double>, Double, Double> intersect_cylinder(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
         Vector3d axis = tangent_double(prim_index);
 
         Point3d v1 = first_vertex_double(prim_index);
@@ -642,12 +630,12 @@ public:
         Vector3d proj_direction = ray_d - dot(axis, ray_d) * axis;
         Double A = squared_norm(proj_direction);
         Double B = 2 * dot(proj_origin, proj_direction);
-        Double C = squared_norm(proj_origin) - sqr((Double)m_radius_per_vertex[prim_index]);
+        Double C = squared_norm(proj_origin) - sqr(radius_double(prim_index));
 
         return math::solve_quadratic<Double>(A, B, C);
     }
 
-    MTS_INLINE std::tuple<bool, double, double> intersect_cone(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
+    MTS_INLINE std::tuple<mask_t<Double>, Double, Double> intersect_cone(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
         Vector3d axis = tangent_double(prim_index);
 
         Point3d v1 = first_vertex_double(prim_index);
@@ -656,45 +644,15 @@ public:
         Vector3d rel_origin = ray_o - v1;
         Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
 
-        Point3d p_circle_v1 = v1 + (double)m_radius_per_vertex[prim_index] * normalize(proj_origin);
-        Point3d p_circle_v2 = v2 + (double)m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
-        Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
-
-        double cos_theta = dot(normalized_edge, axis);
-        double square_cos_theta = sqr(cos_theta);
-        double sin_theta = sqrt(1 - square_cos_theta);
-
-        Point3d cone_top = v1 + ((double)m_radius_per_vertex[prim_index] * cos_theta / sin_theta) * axis;
-        Vector3d center_origin = ray_o - cone_top;
-
-        double d_dot_axis = dot(ray_d, -axis); 
-        double center_origin_dot_axis = dot(center_origin, -axis);
-
-        double A = sqr(d_dot_axis) - square_cos_theta;
-        double B = 2 * (d_dot_axis * center_origin_dot_axis - dot(ray_d, center_origin) * square_cos_theta);
-        double C = sqr(center_origin_dot_axis) - dot(center_origin, center_origin) * square_cos_theta;
-
-        return math::solve_quadratic<double>(A, B, C);
-    }
-
-    MTS_INLINE std::tuple<mask_t<Double>, Double, Double> intersect_cone_packet(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
-        Vector3d axis = tangent_double(prim_index);
-
-        Point3d v1 = first_vertex_double(prim_index);
-        Point3d v2 = second_vertex_double(prim_index);
-
-        Vector3d rel_origin = ray_o - v1;
-        Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
-
-        Point3d p_circle_v1 = v1 + m_radius_per_vertex[prim_index] * normalize(proj_origin);
-        Point3d p_circle_v2 = v2 + m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
+        Point3d p_circle_v1 = v1 + radius_double(prim_index) * normalize(proj_origin);
+        Point3d p_circle_v2 = v2 + radius_double(prim_index+1) * normalize(proj_origin);
         Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
 
         Double cos_theta = dot(normalized_edge, axis);
         Double square_cos_theta = sqr(cos_theta);
         Double sin_theta = sqrt(1 - square_cos_theta);
 
-        Point3d cone_top = v1 + ((Double)m_radius_per_vertex[prim_index] * cos_theta / sin_theta) * axis;
+        Point3d cone_top = v1 + (radius_double(prim_index) * cos_theta / sin_theta) * axis;
         Vector3d center_origin = ray_o - cone_top;
 
         Double d_dot_axis = dot(ray_d, -axis); 
@@ -772,8 +730,8 @@ public:
         std::tuple<mask_t<Double>, Double, Double> coeffs;
 
         bool cylinder_intersection = m_cylinder || (!m_cylinder && abs(radius(prim_index) - radius(prim_index + 1)) < HairEpsilon);
-        coeffs = cylinder_intersection ? intersect_cylinder_packet(prim_index, ray_o, ray_d) :
-                                         intersect_cone_packet(prim_index, ray_o, ray_d);
+        coeffs = cylinder_intersection ? intersect_cylinder(prim_index, ray_o, ray_d) :
+                                         intersect_cone(prim_index, ray_o, ray_d);
                         
         near_t = std::get<1>(coeffs);
         far_t  = std::get<2>(coeffs);
@@ -807,7 +765,7 @@ public:
         masked(t, (active2 && !active)) = far_t;
 
         intersected = intersected && (active1 || active2 && !active);
-        
+
         if (cache) {
             cache[1] = prim_index;
             cache[2] = p.x();
