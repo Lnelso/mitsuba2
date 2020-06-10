@@ -36,7 +36,7 @@ public:
     using SurfaceAreaHeuristic3f = SurfaceAreaHeuristic3<ScalarFloat>;
     using Size                   = uint32_t;
     using Index                  = uint32_t;
-    //using Double                 = Packet<Float64>;
+    using Indices                = uint_array_t<Float>;
     using Double                 = replace_scalar_t<Float, double>;
 
     using Base = TShapeKDTree<ScalarBoundingBox3f, uint32_t, SurfaceAreaHeuristic3f, HairKDTree>;
@@ -61,11 +61,11 @@ public:
     using BoundingBox = typename Base::BoundingBox;
     using Scalar = typename Base::Scalar;
 
-    Float HairEpsilon = scalar_t<Float>(sizeof(scalar_t<Float>) == 8
-                                        ? 1e-7 : 1e-4);
+    ScalarFloat HairEpsilon = scalar_t<Float>(sizeof(scalar_t<Float>) == 8
+                                              ? 1e-7 : 1e-4);
 
     HairKDTree(const Properties &props, std::vector<Point> &vertices,
-               std::vector<bool> &vertex_starts_fiber, std::vector<Float> radius_per_vertex, bool cylinder)
+               std::vector<bool> &vertex_starts_fiber, std::vector<ScalarFloat> radius_per_vertex, bool cylinder)
             : Base(SurfaceAreaHeuristic3f(
                   props.float_("kd_intersection_cost", 20.f),
                   props.float_("kd_traversal_cost", 15.f),
@@ -138,6 +138,10 @@ public:
 
     MTS_INLINE Float radius(Index iv) const {
         return m_radius_per_vertex[iv];
+    }
+
+    MTS_INLINE Float radiuses(Indices iv) const {
+        return gather<Float>(m_radius_per_vertex.data(), iv);
     }
 
     MTS_INLINE Size segment_count() const {
@@ -386,15 +390,15 @@ public:
     }
 
 #if MTS_HAIR_USE_FANCY_CLIPPING == 1
-    Mask intersect_cyl_plane(Point plane_pt, Normal3f plane_nrml,
-            Point cyl_pt, Vector cyl_d, Float radius, Point &center,
-            Vector *axes, Float *lengths) const {
+    bool intersect_cyl_plane(ScalarPoint3f plane_pt, ScalarNormal3f plane_nrml,
+            ScalarPoint3f cyl_pt, ScalarVector3f cyl_d, ScalarFloat radius, ScalarPoint3f &center,
+            ScalarVector3f *axes, ScalarFloat *lengths) const {
 
-        Mask result = !(abs_dot(plane_nrml, cyl_d) < HairEpsilon);
+        bool result = !(abs_dot(plane_nrml, cyl_d) < HairEpsilon);
 
         Vector B, A = cyl_d - dot(cyl_d, plane_nrml)*plane_nrml;
 
-        Float length = norm(A);
+        ScalarFloat length = norm(A);
         if (length > HairEpsilon && plane_nrml != cyl_d) {
             A /= length;
             B = cross(plane_nrml, A);
@@ -405,20 +409,20 @@ public:
         }
 
         Vector delta = plane_pt - cyl_pt,
-                delta_proj = delta - cyl_d*dot(delta, cyl_d);
+               delta_proj = delta - cyl_d*dot(delta, cyl_d);
 
-        Float a_dot_d = dot(A, cyl_d);
-        Float b_dot_d = dot(B, cyl_d);
-        Float c0 = 1-a_dot_d*a_dot_d;
-        Float c1 = 1-b_dot_d*b_dot_d;
-        Float c2 = 2*dot(A, delta_proj);
-        Float c3 = 2*dot(B, delta_proj);
-        Float c4 = dot(delta, delta_proj) - radius*radius;
+        ScalarFloat a_dot_d = dot(A, cyl_d);
+        ScalarFloat b_dot_d = dot(B, cyl_d);
+        ScalarFloat c0 = 1-a_dot_d*a_dot_d;
+        ScalarFloat c1 = 1-b_dot_d*b_dot_d;
+        ScalarFloat c2 = 2*dot(A, delta_proj);
+        ScalarFloat c3 = 2*dot(B, delta_proj);
+        ScalarFloat c4 = dot(delta, delta_proj) - radius*radius;
 
-        Float lambda = (c2*c2/(4*c0) + c3*c3/(4*c1) - c4)/(c0*c1);
+        ScalarFloat lambda = (c2*c2/(4*c0) + c3*c3/(4*c1) - c4)/(c0*c1);
 
-        Float alpha0 = -c2/(2*c0),
-                beta0 = -c3/(2*c1);
+        ScalarFloat alpha0 = -c2/(2*c0),
+                    beta0 = -c3/(2*c1);
 
         lengths[0] = sqrt(c1*lambda),
         lengths[1] = sqrt(c0*lambda);
@@ -430,49 +434,48 @@ public:
         return result;
     }
 
-    BoundingBox intersect_cyl_face(int axis,
-            const Point &min, const Point &max,
-            const Point &cyl_pt, const Vector &cyl_d, Index iv) const {
+    ScalarBoundingBox3f intersect_cyl_face(int axis,
+            const ScalarPoint3f &min, const ScalarPoint3f &max,
+            const ScalarPoint3f &cyl_pt, const ScalarVector3f &cyl_d, Index iv) const {
 
         int axis1 = (axis + 1) % 3;
         int axis2 = (axis + 2) % 3;
 
-        Normal3f plane_nrml(0.0f);
+        ScalarNormal3f plane_nrml(0.0f);
         plane_nrml[axis] = 1;
 
-        Point ellipse_center;
-        Vector ellipse_axes[2];
-        Float ellipse_lengths[2];
+        ScalarPoint3f ellipse_center;
+        ScalarVector3f ellipse_axes[2];
+        ScalarFloat ellipse_lengths[2];
 
-        BoundingBox aabb;
-        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d, m_radius_per_vertex[iv] * (1 + HairEpsilon),
-                               ellipse_center, ellipse_axes, ellipse_lengths)) {
+        ScalarBoundingBox3f aabb;
+        if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d,
+                                 m_radius_per_vertex[iv] * (1 + HairEpsilon),
+                                 ellipse_center, ellipse_axes, ellipse_lengths)) {
             return aabb;
         }
 
         for (int i=0; i<4; ++i) {
-            Point p1, p2;
+            ScalarPoint3f p1, p2; //TODO: check
             p1[axis] = p2[axis] = min[axis];
             p1[axis1] = ((i+1) & 2) ? min[axis1] : max[axis1];
             p1[axis2] = ((i+0) & 2) ? min[axis2] : max[axis2];
             p2[axis1] = ((i+2) & 2) ? min[axis1] : max[axis1];
             p2[axis2] = ((i+1) & 2) ? min[axis2] : max[axis2];
 
-            Point2f p1l(
-                    dot(p1 - ellipse_center, ellipse_axes[0]) / ellipse_lengths[0],
-                    dot(p1 - ellipse_center, ellipse_axes[1]) / ellipse_lengths[1]);
-            Point2f p2l(
-                    dot(p2 - ellipse_center, ellipse_axes[0]) / ellipse_lengths[0],
-                    dot(p2 - ellipse_center, ellipse_axes[1]) / ellipse_lengths[1]);
+            ScalarPoint2f p1l(dot(p1 - ellipse_center, ellipse_axes[0]) / ellipse_lengths[0],
+                              dot(p1 - ellipse_center, ellipse_axes[1]) / ellipse_lengths[1]);
+            ScalarPoint2f p2l(dot(p2 - ellipse_center, ellipse_axes[0]) / ellipse_lengths[0],
+                              dot(p2 - ellipse_center, ellipse_axes[1]) / ellipse_lengths[1]);
 
-            Vector2f rel = p2l-p1l;
-            Float A = dot(rel, rel);
-            Float B = 2*dot(p1l, rel);
-            Float C = dot(p1l, p1l)-1;
+            ScalarVector2f rel = p2l-p1l;
+            ScalarFloat A = dot(rel, rel);
+            ScalarFloat B = 2*dot(p1l, rel);
+            ScalarFloat C = dot(p1l, p1l)-1;
 
             auto coefs = math::solve_quadratic(A, B, C);
-            Float x0 = std::get<1>(coefs);
-            Float x1 = std::get<2>(coefs);
+            ScalarFloat x0 = std::get<1>(coefs);
+            ScalarFloat x1 = std::get<2>(coefs);
             if (std::get<0>(coefs)) {
                 if (x0 >= 0 && x0 <= 1)
                     aabb.expand(p1+(p2-p1)*x0);
@@ -483,17 +486,17 @@ public:
 
         ellipse_axes[0] *= ellipse_lengths[0];
         ellipse_axes[1] *= ellipse_lengths[1];
-        BoundingBox face_bounds(min, max);
+        ScalarBoundingBox3f face_bounds(min, max);
 
         for (int i=0; i<2; ++i) {
             int j = (i==0) ? axis1 : axis2;
-            Float alpha = ellipse_axes[0][j];
-            Float beta = ellipse_axes[1][j];
-            Float tmp = 1 / sqrt(alpha*alpha + beta*beta);
-            Float cos_theta = alpha * tmp, sin_theta = beta*tmp;
+            ScalarFloat alpha = ellipse_axes[0][j];
+            ScalarFloat beta = ellipse_axes[1][j];
+            ScalarFloat tmp = 1 / sqrt(alpha*alpha + beta*beta);
+            ScalarFloat cos_theta = alpha * tmp, sin_theta = beta*tmp;
 
-            Point p1 = ellipse_center + cos_theta*ellipse_axes[0] + sin_theta*ellipse_axes[1];
-            Point p2 = ellipse_center - cos_theta*ellipse_axes[0] - sin_theta*ellipse_axes[1];
+            ScalarPoint3f p1 = ellipse_center + cos_theta*ellipse_axes[0] + sin_theta*ellipse_axes[1];
+            ScalarPoint3f p2 = ellipse_center - cos_theta*ellipse_axes[0] - sin_theta*ellipse_axes[1];
 
             if (face_bounds.contains(p1))
                 aabb.expand(p1);
@@ -504,19 +507,21 @@ public:
         return aabb;
     }
 
-    BoundingBox bbox(Index index) const {
+    ScalarBoundingBox3f bbox(Index index) const {
         Index iv = m_seg_index[index];
-        Point center;
-        Vector axes[2];
-        Float lengths[2];
+        ScalarPoint3f center;
+        ScalarVector3f axes[2];
+        ScalarFloat lengths[2];
 
         Mask success = intersect_cyl_plane(first_vertex(iv), first_miter_normal(iv),
-                                         first_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-HairEpsilon), center, axes, lengths);
+                                           first_vertex(iv), tangent(iv),
+                                           m_radius_per_vertex[iv] * (1-HairEpsilon),
+                                           center, axes, lengths);
 
-        BoundingBox result;
+        ScalarBoundingBox3f result;
         axes[0] *= lengths[0]; axes[1] *= lengths[1];
         for (int i=0; i<3; ++i) {
-            Float range = sqrt(axes[0][i]*axes[0][i] + axes[1][i]*axes[1][i]);
+            ScalarFloat range = sqrt(axes[0][i]*axes[0][i] + axes[1][i]*axes[1][i]);
             result.min[i] = min(result.min[i], center[i]-range);
             result.max[i] = max(result.max[i], center[i]+range);
         }
@@ -527,7 +532,7 @@ public:
 
         axes[0] *= lengths[0]; axes[1] *= lengths[1];
         for (int i=0; i<3; ++i) {
-            Float range = sqrt(axes[0][i]*axes[0][i] + axes[1][i]*axes[1][i]);
+            ScalarFloat range = sqrt(axes[0][i]*axes[0][i] + axes[1][i]*axes[1][i]);
             result.min[i] = min(result.min[i], center[i]-range);
             result.max[i] = max(result.max[i], center[i]+range);
         }
@@ -535,15 +540,15 @@ public:
         return result;
     }
 
-    BoundingBox bbox(Index index, const BoundingBox &box) const {
-        BoundingBox base(bbox(index));
+    ScalarBoundingBox3f bbox(Index index, const BoundingBox &box) const {
+        ScalarBoundingBox3f base(bbox(index));
         base.clip(box);
 
         Index iv = m_seg_index[index];
-        Point cyl_pt = first_vertex(iv);
-        Vector cyl_d = tangent(iv);
+        ScalarPoint3f cyl_pt = first_vertex(iv);
+        ScalarVector3f cyl_d = tangent(iv);
 
-        BoundingBox clipped_bbox;
+        ScalarBoundingBox3f clipped_bbox;
         clipped_bbox.expand(intersect_cyl_face(0,
                                                Point(base.min.x(), base.min.y(), base.min.z()),
                                                Point(base.min.x(), base.max.y(), base.max.z()),
@@ -579,19 +584,19 @@ public:
         return clipped_bbox;
     }
 #else
-    BoundingBox bbox(Index index) const {
+    ScalarBoundingBox3f bbox(Index index) const {
         Index iv = m_seg_index[index];
 
-        const Float cos0 = dot(first_miter_normal(iv), tangent(iv));
-        const Float cos1 = dot(second_miter_normal(iv), tangent(iv));
-        const Float max_inv_cos = 1.0f / (Float)enoki::min(cos0, cos1);
-        const Float max = m_radius_per_vertex[iv];
+        const ScalarFloat cos0 = dot(first_miter_normal(iv), tangent(iv));
+        const ScalarFloat cos1 = dot(second_miter_normal(iv), tangent(iv));
+        const ScalarFloat max_inv_cos = 1.0f / (Float)enoki::min(cos0, cos1);
+        const ScalarFloat max = m_radius_per_vertex[iv];
         const Vector expand_vec(max * max_inv_cos);
 
-        const Point a = first_vertex(iv);
-        const Point b = second_vertex(iv);
+        const ScalarPoint3f a = first_vertex(iv);
+        const ScalarPoint3f b = second_vertex(iv);
 
-        BoundingBox box;
+        ScalarBoundingBox3f box;
         box.expand((Point)(a - expand_vec));
         box.expand((Point)(a + expand_vec));
         box.expand((Point)(b - expand_vec));
@@ -599,8 +604,8 @@ public:
         return box;
     }
 
-    BoundingBox bbox(Index index, const BoundingBox &box) const {
-        BoundingBox cbox = bbox(index);
+    ScalarBoundingBox3f bbox(Index index, const BoundingBox &box) const {
+        ScalarBoundingBox3f cbox = bbox(index);
         cbox.clip(box);
         return cbox;
     }
@@ -611,9 +616,9 @@ public:
     }
 
     MTS_INLINE std::tuple<double, double, double> intersect_cylinder(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
-        Vector3d axis = tangent(prim_index);
+        Vector3d axis = tangent_double(prim_index);
 
-        Point3d v1 = first_vertex(prim_index);
+        Point3d v1 = first_vertex_double(prim_index);
 
         Vector3d rel_origin = ray_o - v1;
         Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
@@ -627,9 +632,9 @@ public:
     }
 
     MTS_INLINE std::tuple<mask_t<Double>, Double, Double> intersect_cylinder_packet(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
-        Vector3d axis = tangent(prim_index);
+        Vector3d axis = tangent_double(prim_index);
 
-        Point3d v1 = first_vertex(prim_index);
+        Point3d v1 = first_vertex_double(prim_index);
 
         Vector3d rel_origin = ray_o - v1;
         Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
@@ -643,10 +648,10 @@ public:
     }
 
     MTS_INLINE std::tuple<double, double, double> intersect_cone(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
-        Vector3d axis = tangent(prim_index);
+        Vector3d axis = tangent_double(prim_index);
 
-        Point3d v1 = first_vertex(prim_index);
-        Point3d v2 = second_vertex(prim_index);
+        Point3d v1 = first_vertex_double(prim_index);
+        Point3d v2 = second_vertex_double(prim_index);
 
         Vector3d rel_origin = ray_o - v1;
         Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
@@ -673,23 +678,23 @@ public:
     }
 
     MTS_INLINE std::tuple<mask_t<Double>, Double, Double> intersect_cone_packet(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
-        Vector3d axis = tangent(prim_index);
+        Vector3d axis = tangent_double(prim_index);
 
-        Point3d v1 = first_vertex(prim_index);
-        Point3d v2 = second_vertex(prim_index);
+        Point3d v1 = first_vertex_double(prim_index);
+        Point3d v2 = second_vertex_double(prim_index);
 
         Vector3d rel_origin = ray_o - v1;
         Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
 
-        Point3d p_circle_v1 = v1 + (Float64)m_radius_per_vertex[prim_index] * normalize(proj_origin);
-        Point3d p_circle_v2 = v2 + (Float64)m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
+        Point3d p_circle_v1 = v1 + m_radius_per_vertex[prim_index] * normalize(proj_origin);
+        Point3d p_circle_v2 = v2 + m_radius_per_vertex[prim_index+1] * normalize(proj_origin);
         Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
 
         Double cos_theta = dot(normalized_edge, axis);
         Double square_cos_theta = sqr(cos_theta);
         Double sin_theta = sqrt(1 - square_cos_theta);
 
-        Point3d cone_top = v1 + ((Float64)m_radius_per_vertex[prim_index] * cos_theta / sin_theta) * axis;
+        Point3d cone_top = v1 + ((Double)m_radius_per_vertex[prim_index] * cos_theta / sin_theta) * axis;
         Vector3d center_origin = ray_o - cone_top;
 
         Double d_dot_axis = dot(ray_d, -axis); 
@@ -703,15 +708,14 @@ public:
     }
 
     //http://lousodrome.net/blog/light/2017/01/03/intersection-of-a-ray-and-a-cone/
-
     MTS_INLINE std::pair<Mask, Float> intersect_prim(Index prim_index, const Ray3f &ray, Float *cache, Mask active) const {
         ENOKI_MARK_USED(active);
 
         Point3d ray_o(ray.o);
         Vector3d ray_d(ray.d);
 
-        Point3d v1 = first_vertex(prim_index);
-        Point3d v2 = second_vertex(prim_index);
+        Point3d v1 = first_vertex_double(prim_index);
+        Point3d v2 = second_vertex_double(prim_index);
 
         double near_t, far_t, t = 0.0;
         auto coeffs = m_cylinder ? intersect_cylinder(prim_index, ray_o, ray_d) :
@@ -761,15 +765,18 @@ public:
         Point3d ray_o(ray.o);
         Vector3d ray_d(ray.d);
 
-        Point3d v1 = first_vertex(prim_index);
-        Point3d v2 = second_vertex(prim_index);
+        Point3d v1 = first_vertex_double(prim_index);
+        Point3d v2 = second_vertex_double(prim_index);
 
         Mask intersected = true;
         Double near_t, far_t, t = 0.0;
         std::tuple<mask_t<Double>, Double, Double> coeffs;
+        //Mask delta_radius = abs(radius(prim_index) - radius(prim_index + 1)) < HairEpsilon;
+        //active = m_cylinder || delta_radius;
         active = m_cylinder;
-        //masked(coeffs, active) = intersect_cylinder_packet(prim_index, ray_o, ray_d);
-        //masked(coeffs, !active) = intersect_cone_packet(prim_index, ray_o, ray_d);
+        active = active || abs(radius(prim_index) - radius(prim_index + 1)) < HairEpsilon;
+        masked(coeffs, m_cylinder) = intersect_cylinder_packet(prim_index, ray_o, ray_d);
+        masked(coeffs, !m_cylinder) = intersect_cone_packet(prim_index, ray_o, ray_d);
 
         near_t = std::get<1>(coeffs);
         far_t = std::get<2>(coeffs);
@@ -809,22 +816,40 @@ public:
 
     /* Some utility functions */
     MTS_INLINE Point first_vertex(Index iv) const { return m_vertices[iv]; }
+    MTS_INLINE Point3d first_vertex_double(Index iv) const { return Point3d(m_vertices[iv]); }
+
     MTS_INLINE Point second_vertex(Index iv) const { return m_vertices[iv+1]; }
+    MTS_INLINE Point3d second_vertex_double(Index iv) const { return Point3d(m_vertices[iv+1]); }
+
     MTS_INLINE Point prev_vertex(Index iv) const { return m_vertices[iv-1]; }
+    MTS_INLINE Point3d prev_vertex_double(Index iv) const { return Point3d(m_vertices[iv-1]); }
+
     MTS_INLINE Point next_vertex(Index iv) const { return m_vertices[iv+2]; }
+    MTS_INLINE Point3d next_vertex_double(Index iv) const { return Point3d(m_vertices[iv+2]); }
 
     MTS_INLINE bool prev_segment_exists(Index iv) const { return !m_vertex_starts_fiber[iv]; }
     MTS_INLINE bool next_segment_exists(Index iv) const { return !m_vertex_starts_fiber[iv+2]; }
 
     MTS_INLINE Vector tangent(Index iv) const { return normalize(second_vertex(iv) - first_vertex(iv)); }
+    MTS_INLINE Vector3d tangent_double(Index iv) const { return normalize(second_vertex_double(iv) - first_vertex_double(iv)); }
+
     MTS_INLINE Vector prev_tangent(Index iv) const { return normalize(first_vertex(iv) - prev_vertex(iv)); }
+    MTS_INLINE Vector3d prev_tangent_double(Index iv) const { return normalize(first_vertex_double(iv) - prev_vertex_double(iv)); }
+
     MTS_INLINE Vector next_tangent(Index iv) const { return normalize(next_vertex(iv) - second_vertex(iv)); }
+    MTS_INLINE Vector3d next_tangent_double(Index iv) const { return normalize(next_vertex_double(iv) - second_vertex_double(iv)); }
 
     MTS_INLINE Vector first_miter_normal(Index iv) const {
         if (prev_segment_exists(iv))
             return normalize(prev_tangent(iv) + tangent(iv));
         else
             return tangent(iv);
+    }
+    MTS_INLINE Vector3d first_miter_normal_double(Index iv) const {
+        if (prev_segment_exists(iv))
+            return normalize(prev_tangent_double(iv) + tangent_double(iv));
+        else
+            return tangent_double(iv);
     }
 
     MTS_INLINE Vector second_miter_normal(Index iv) const {
@@ -833,13 +858,31 @@ public:
         else
             return tangent(iv);
     }
+    MTS_INLINE Vector3d second_miter_normal_double(Index iv) const {
+        if (next_segment_exists(iv))
+            return normalize(tangent_double(iv) + next_tangent_double(iv));
+        else
+            return tangent_double(iv);
+    }
+
+    MTS_INLINE Point3f first_vertices(Indices iv) const {
+        return gather<Point3f, sizeof(ScalarPoint3f)>(m_vertices.data(), iv);
+    }
+
+    MTS_INLINE Point3f second_vertices(Indices iv) const {
+        return gather<Point3f, sizeof(ScalarPoint3f)>(m_vertices.data(), iv+1);
+    }
+
+    MTS_INLINE Vector3f tangents(Indices iv) const {
+        return normalize(second_vertices(iv) - first_vertices(iv)); 
+    }
 
     MTS_DECLARE_CLASS()
 private:
-    std::vector<Point> m_vertices;
+    std::vector<ScalarPoint3f> m_vertices;
     std::vector<bool> m_vertex_starts_fiber;
     std::vector<Index> m_seg_index;
-    std::vector<Float> m_radius_per_vertex;
+    std::vector<ScalarFloat> m_radius_per_vertex;
     Size m_segment_count;
     Size m_hair_count;
     bool m_cylinder;
@@ -854,9 +897,10 @@ public:
     MTS_IMPORT_TYPES(HairKDTree)
 
     using typename Base::ScalarSize;
-    using Index = typename HairKDTree::Index;
+    using Index       = typename HairKDTree::Index;
+    using Indices     = uint_array_t<Float>;
     using ScalarIndex = typename Base::ScalarIndex;
-    using PCG32 = mitsuba::PCG32<UInt32>;
+    using PCG32       = mitsuba::PCG32<UInt32>;
 
     Float HairEpsilon = scalar_t<Float>(sizeof(scalar_t<Float>) == 8
                                         ? 1e-7 : 1e-4);
@@ -898,7 +942,7 @@ public:
             binary_format = false;
 
         std::vector<ScalarPoint3f> vertices;
-        std::vector<Float> radius_per_vertex;
+        std::vector<ScalarFloat> radius_per_vertex;
         std::vector<bool> vertex_starts_fiber;
         ScalarVector3f tangent(0.0f);
         size_t n_degenerate = 0, n_skipped = 0;
@@ -1088,32 +1132,30 @@ public:
 
     void fill_surface_interaction(const Ray3f &ray, const Float *cache, SurfaceInteraction3f &si, Mask active = true) const override{
         ENOKI_MARK_USED(active);
-        
-        UInt32 iv;
-        if constexpr (!is_array_v<Float>)
-            iv = cache[1];
-        else
-            iv = reinterpret_array<UInt32>(cache[1]);
-        
-        si.p[0] = cache[2];
-        si.p[1] = cache[3];
-        si.p[2] = cache[4];
 
-        const Vector3f axis = m_kdtree->tangent(iv);
+        Indices iv = cache[1];
+        si.p[0]    = cache[2];
+        si.p[1]    = cache[3];
+        si.p[2]    = cache[4];
+
+        const Vector3f axis = m_kdtree->tangents(iv);
         si.shape = this;
 
-        Point3f v1 = m_kdtree->first_vertex(iv); 
-        Point3f v2 = m_kdtree->second_vertex(iv);
+        Point3f v1 = m_kdtree->first_vertices(iv);
+        Point3f v2 = m_kdtree->second_vertices(iv);
         Vector3f rel_hit_point = si.p - v1;
         si.n = normalize(rel_hit_point - dot(axis, rel_hit_point) * axis);
+
+        Float radiuses = m_kdtree->radiuses(iv);
+        Float next_radiuses = m_kdtree->radiuses(iv + 1);
 
         //If the primitive is a cone, compute opening angle and rotate the normal
         if(!m_kdtree->use_cylinders()){
             Vector3f rel_origin = ray.o - v1;
             Vector3f proj_origin = normalize(rel_origin - dot(axis, rel_origin) * axis);
 
-            Point3f p_circle_v1 = v1 + m_kdtree->radius(iv) * proj_origin;
-            Point3f p_circle_v2 = v2 + m_kdtree->radius(iv+1) * proj_origin;
+            Point3f p_circle_v1 = v1 + radiuses * proj_origin;
+            Point3f p_circle_v2 = v2 + next_radiuses * proj_origin;
 
             Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
             Float cos_theta = dot(normalized_edge, axis);
@@ -1126,12 +1168,12 @@ public:
         frame.t = cross(frame.n, frame.s);
 
         const Vector3f local = frame.to_local(rel_hit_point);
-       
-        Float delta_radius = m_kdtree->radius(iv) - m_kdtree->radius(iv + 1);
-        Float radius_at_p = m_kdtree->radius(iv) - (dot(rel_hit_point, axis) / norm(v2 - v1)) * delta_radius;
-        active = abs(m_kdtree->radius(iv) - m_kdtree->radius(iv+1)) < HairEpsilon;
-        masked(si.p, active) += si.n * (radius_at_p - sqrt(local.y()*local.y()+local.z()*local.z()));
-        masked(si.p, !active) += si.n * (m_kdtree->radius(iv) - sqrt(local.y()*local.y()+local.z()*local.z()));
+        Float delta_radius = radiuses - next_radiuses;
+        Float radius_at_p = radiuses - (dot(rel_hit_point, axis) / norm(v2 - v1)) * delta_radius;
+        active = abs(delta_radius) < HairEpsilon;
+        si.p += select(active,
+                       si.n * (radiuses - sqrt(local.y()*local.y()+local.z()*local.z())),
+                       si.n * (radius_at_p - sqrt(local.y()*local.y()+local.z()*local.z())));
 
         si.sh_frame.n = si.n;
         auto uv = coordinate_system(si.sh_frame.n);
@@ -1149,7 +1191,7 @@ public:
         Vector3f center = v1 + axis * dot(rel_hit_point, axis);
         Vector3f local_hit_point = offset_frame.to_local(si.p - center);
 
-        Float denom = select(active, m_kdtree->radius(iv), radius_at_p);
+        Float denom = select(active, m_kdtree->radiuses(iv), radius_at_p);
 
         Float offset = abs(dot(local_hit_point, offset_frame.t) / denom); // should be between 0 and 1
         clamp(offset, 0, 1); //Clamp the value to 1 because of floating point precision
