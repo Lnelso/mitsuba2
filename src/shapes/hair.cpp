@@ -136,7 +136,7 @@ public:
         return m_vertex_starts_fiber;
     }
 
-    MTS_INLINE Float radius(Index iv) const {
+    MTS_INLINE ScalarFloat radius(Index iv) const {
         return m_radius_per_vertex[iv];
     }
 
@@ -615,7 +615,7 @@ public:
         return (Size) m_segment_count;
     }
 
-    MTS_INLINE std::tuple<double, double, double> intersect_cylinder(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
+    MTS_INLINE std::tuple<bool, double, double> intersect_cylinder(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
         Vector3d axis = tangent_double(prim_index);
 
         Point3d v1 = first_vertex_double(prim_index);
@@ -644,10 +644,10 @@ public:
         Double B = 2 * dot(proj_origin, proj_direction);
         Double C = squared_norm(proj_origin) - sqr((Double)m_radius_per_vertex[prim_index]);
 
-        return math::solve_quadratic<Float64>(A, B, C);
+        return math::solve_quadratic<Double>(A, B, C);
     }
 
-    MTS_INLINE std::tuple<double, double, double> intersect_cone(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
+    MTS_INLINE std::tuple<bool, double, double> intersect_cone(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
         Vector3d axis = tangent_double(prim_index);
 
         Point3d v1 = first_vertex_double(prim_index);
@@ -704,7 +704,7 @@ public:
         Double B = 2 * (d_dot_axis * center_origin_dot_axis - dot(ray_d, center_origin) * square_cos_theta);
         Double C = sqr(center_origin_dot_axis) - dot(center_origin, center_origin) * square_cos_theta;
 
-        return math::solve_quadratic<Float64>(A, B, C);
+        return math::solve_quadratic<Double>(A, B, C);
     }
 
     //http://lousodrome.net/blog/light/2017/01/03/intersection-of-a-ray-and-a-cone/
@@ -768,42 +768,46 @@ public:
         Point3d v1 = first_vertex_double(prim_index);
         Point3d v2 = second_vertex_double(prim_index);
 
-        Mask intersected = true;
         Double near_t, far_t, t = 0.0;
         std::tuple<mask_t<Double>, Double, Double> coeffs;
-        //Mask delta_radius = abs(radius(prim_index) - radius(prim_index + 1)) < HairEpsilon;
-        //active = m_cylinder || delta_radius;
-        active = m_cylinder;
-        active = active || abs(radius(prim_index) - radius(prim_index + 1)) < HairEpsilon;
-        masked(coeffs, m_cylinder) = intersect_cylinder_packet(prim_index, ray_o, ray_d);
-        masked(coeffs, !m_cylinder) = intersect_cone_packet(prim_index, ray_o, ray_d);
 
+        bool cylinder_intersection = m_cylinder || (!m_cylinder && abs(radius(prim_index) - radius(prim_index + 1)) < HairEpsilon);
+        coeffs = cylinder_intersection ? intersect_cylinder_packet(prim_index, ray_o, ray_d) :
+                                         intersect_cone_packet(prim_index, ray_o, ray_d);
+                        
         near_t = std::get<1>(coeffs);
-        far_t = std::get<2>(coeffs);
+        far_t  = std::get<2>(coeffs);
 
-        mask_t<Double> found_sol = !std::get<0>(coeffs);
-        intersected &= !found_sol;
+        Mask intersected = true;
+
+        mask_t<Double> found_sol = std::get<0>(coeffs);
+        if(all(!found_sol))
+            return {false, t};
+        intersected = intersected && found_sol;
 
         active = !(near_t <= ray.maxt && far_t >= ray.mint);
-        intersected &= !active;
+        if(all(active))
+            return {false, t};
+        intersected = intersected && !active;
 
         Point3d point_near = ray_o + ray_d * near_t;
-        Point3d point_far = ray_o + ray_d * far_t;
+        Point3d point_far  = ray_o + ray_d * far_t;
 
         Vector3d n1 = first_miter_normal(prim_index);
         Vector3d n2 = second_miter_normal(prim_index);
         Point3d p;
 
-        active = dot(point_near - v1, n1) >= 0 && dot(point_near - v2, n2) <= 0 && near_t >= ray.mint;
-        masked(t, active) = near_t;
-        masked(p, active) = Point3d(ray_o + ray_d * near_t);
-        intersected &= !active;
+        Mask active1 = dot(point_near - v1, n1) >= 0 && dot(point_near - v2, n2) <= 0 && near_t >= ray.mint;
+        masked(p, active1) = Point3d(ray_o + ray_d * near_t);
+        masked(t, active1) = near_t;
 
-        active = dot(point_far - v1, n1) >= 0 && dot(point_far - v2, n2) <= 0;
-        masked(t, active) = far_t;
-        masked(p, active) = Point3d(ray_o + ray_d * far_t);
-        intersected &= !active;
+        Mask active2 = !active1 && dot(point_far - v1, n1) >= 0 && dot(point_far - v2, n2) <= 0;
+        active = far_t > ray.maxt;
+        masked(p, (active2 && !active)) = Point3d(ray_o + ray_d * far_t);
+        masked(t, (active2 && !active)) = far_t;
 
+        intersected = intersected && (active1 || active2 && !active);
+        
         if (cache) {
             cache[1] = prim_index;
             cache[2] = p.x();
@@ -811,7 +815,7 @@ public:
             cache[4] = p.z();
         }
 
-        return std::make_pair(intersected, t);
+        return {intersected, t};
     }
 
     /* Some utility functions */
