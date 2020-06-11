@@ -116,22 +116,15 @@ public:
         Spectrum throughput(1.f), result(0.f);
 
         // ---------------------- First intersection ----------------------
-        //std::cout << "before intersect" << std::endl;
         SurfaceInteraction3f si = scene->ray_intersect(ray, active);
         Mask valid_ray = si.is_valid();
         EmitterPtr emitter = si.emitter(scene);
-        //std::cout << "after intersect: " << valid_ray << std::endl;
         for (int depth = 1;; ++depth) {
 
             // ---------------- Intersection with emitters ----------------
 
-            if (any_or<true>(neq(emitter, nullptr))){
+            if (any_or<true>(neq(emitter, nullptr)))
                 result[active] += emission_weight * throughput * emitter->eval(si, active);
-                /*for (int i=0; i<3; ++i) {
-                    if ((!std::isfinite(result[i]) || result[i] < 0))
-                        Log(LogLevel::Error, "Stop 1.");
-                }*/
-            }
 
             active &= si.is_valid();
 
@@ -174,16 +167,6 @@ public:
 
                 Float mis = select(ds.delta, 1.f, mis_weight(ds.pdf, bsdf_pdf));
                 result[active_e] += mis * throughput * bsdf_val * emitter_val;
-
-                /*for (int i=0; i<3; ++i) {
-                    if ((!std::isfinite(result[i]) || result[i] < 0)){
-                        std::cout << "mis: " << mis << std::endl;
-                        std::cout << "throughput: " << throughput << std::endl;
-                        std::cout << "bsdf_val: " << bsdf_val << std::endl;
-                        std::cout << "emitter_val: " << emitter_val << std::endl;
-                        Log(LogLevel::Error, "Stop 2.");
-                    }
-                }*/
             }
 
             // ----------------------- BSDF sampling ----------------------
@@ -191,15 +174,10 @@ public:
             // Sample BSDF * cos(theta)
             auto [bs, bsdf_val] = bsdf->sample(ctx, si, sampler->next_1d(active),
                                                sampler->next_2d(active), active);
-            //std::cout << "START" << std::endl;
-            //std::cout << "after sample: " << bsdf_val << std::endl;
-            bsdf_val = si.to_world_mueller(bsdf_val, -bs.wo, si.wi);
-            //std::cout << "after mueller: " << bsdf_val << std::endl;
 
+            bsdf_val = si.to_world_mueller(bsdf_val, -bs.wo, si.wi);
 
             throughput = throughput * bsdf_val;
-            //std::cout << "throughput: " <<throughput << std::endl;
-            //std::cout << "END" << std::endl;
             active &= any(neq(depolarize(throughput), 0.f));
             if (none_or<false>(active))
                 break;

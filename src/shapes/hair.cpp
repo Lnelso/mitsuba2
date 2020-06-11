@@ -112,7 +112,7 @@ public:
         const Scalar eps = MTS_KD_AABB_EPSILON;
         m_bbox.min -= m_bbox.extents() * eps + Vector(eps);
         m_bbox.max += m_bbox.extents() * eps + Vector(eps);
-            
+
         set_stop_primitives(1);
         set_exact_primitive_threshold(16384);
         set_clip_primitives(true);
@@ -141,7 +141,7 @@ public:
     }
 
     MTS_INLINE Double radius_double(Index iv) const {
-        return (Double)m_radius_per_vertex[iv];
+        return (Double) m_radius_per_vertex[iv];
     }
 
     MTS_INLINE Float radiuses(Indices iv) const {
@@ -398,7 +398,8 @@ public:
             ScalarPoint3f cyl_pt, ScalarVector3f cyl_d, ScalarFloat radius, ScalarPoint3f &center,
             ScalarVector3f *axes, ScalarFloat *lengths) const {
 
-        bool result = !(abs_dot(plane_nrml, cyl_d) < HairEpsilon);
+        if (abs_dot(plane_nrml, cyl_d) < HairEpsilon)
+            return false;
 
         Vector B, A = cyl_d - dot(cyl_d, plane_nrml)*plane_nrml;
 
@@ -435,7 +436,7 @@ public:
         axes[0] = A;
         axes[1] = B;
 
-        return result;
+        return true;
     }
 
     ScalarBoundingBox3f intersect_cyl_face(int axis,
@@ -454,7 +455,7 @@ public:
 
         ScalarBoundingBox3f aabb;
         if (!intersect_cyl_plane(min, plane_nrml, cyl_pt, cyl_d,
-                                 m_radius_per_vertex[iv] * (1 + HairEpsilon),
+                                 radius(iv) * (1 + HairEpsilon),
                                  ellipse_center, ellipse_axes, ellipse_lengths)) {
             return aabb;
         }
@@ -519,7 +520,7 @@ public:
 
         Mask success = intersect_cyl_plane(first_vertex(iv), first_miter_normal(iv),
                                            first_vertex(iv), tangent(iv),
-                                           m_radius_per_vertex[iv] * (1-HairEpsilon),
+                                           radius(iv) * (1-HairEpsilon),
                                            center, axes, lengths);
 
         ScalarBoundingBox3f result;
@@ -531,7 +532,7 @@ public:
         }
 
         success = intersect_cyl_plane(second_vertex(iv), second_miter_normal(iv),
-                                    second_vertex(iv), tangent(iv), m_radius_per_vertex[iv] * (1-HairEpsilon), center, axes, lengths);
+                                    second_vertex(iv), tangent(iv), radius(iv) * (1-HairEpsilon), center, axes, lengths);
         Assert(success);
 
         axes[0] *= lengths[0]; axes[1] *= lengths[1];
@@ -593,8 +594,8 @@ public:
 
         const ScalarFloat cos0 = dot(first_miter_normal(iv), tangent(iv));
         const ScalarFloat cos1 = dot(second_miter_normal(iv), tangent(iv));
-        const ScalarFloat max_inv_cos = 1.0f / (Float)enoki::min(cos0, cos1);
-        const ScalarFloat max = m_radius_per_vertex[iv];
+        const ScalarFloat max_inv_cos = 1.0f / min(cos0, cos1);
+        const ScalarFloat max = radius(iv);
         const Vector expand_vec(max * max_inv_cos);
 
         const ScalarPoint3f a = first_vertex(iv);
@@ -635,37 +636,47 @@ public:
         return math::solve_quadratic<Double>(A, B, C);
     }
 
+    //http://lousodrome.net/blog/light/2017/01/03/intersection-of-a-ray-and-a-cone/
     MTS_INLINE std::tuple<mask_t<Double>, Double, Double> intersect_cone(Index prim_index, Point3d ray_o, Vector3d ray_d) const{
         Vector3d axis = tangent_double(prim_index);
 
         Point3d v1 = first_vertex_double(prim_index);
         Point3d v2 = second_vertex_double(prim_index);
 
+        auto r1 = radius_double(prim_index);
+        auto r2 = radius_double(prim_index+1);
+
         Vector3d rel_origin = ray_o - v1;
         Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
 
-        Point3d p_circle_v1 = v1 + radius_double(prim_index) * normalize(proj_origin);
-        Point3d p_circle_v2 = v2 + radius_double(prim_index+1) * normalize(proj_origin);
+        Point3d p_circle_v1 = v1 + r1 * normalize(proj_origin);
+        Point3d p_circle_v2 = v2 + r2 * normalize(proj_origin);
         Vector3d normalized_edge = normalize(p_circle_v2 - p_circle_v1);
 
         Double cos_theta = dot(normalized_edge, axis);
         Double square_cos_theta = sqr(cos_theta);
         Double sin_theta = sqrt(1 - square_cos_theta);
 
-        Point3d cone_top = v1 + (radius_double(prim_index) * cos_theta / sin_theta) * axis;
+        Point3d cone_top = v1 + (r1 * cos_theta / sin_theta) * axis;
         Vector3d center_origin = ray_o - cone_top;
 
-        Double d_dot_axis = dot(ray_d, -axis); 
-        Double center_origin_dot_axis = dot(center_origin, -axis);
+        /*std::cout << "r1: " << radius_double(prim_index) << std::endl;
+        std::cout << "r2: " << radius_double(prim_index+1) << std::endl;
+        std::cout << "v1: " << v1 << std::endl;
+        std::cout << "v2: " << v2 << std::endl;
+        std::cout << "top: " << cone_top << "\n" << std::endl;*/
+
+        Double d_dot_axis = dot(ray_d, axis); 
+        Double center_origin_dot_axis = dot(center_origin, axis);
 
         Double A = sqr(d_dot_axis) - square_cos_theta;
         Double B = 2 * (d_dot_axis * center_origin_dot_axis - dot(ray_d, center_origin) * square_cos_theta);
-        Double C = sqr(center_origin_dot_axis) - dot(center_origin, center_origin) * square_cos_theta;
+        Double C = sqr(center_origin_dot_axis) - squared_norm(center_origin) * square_cos_theta;
 
         return math::solve_quadratic<Double>(A, B, C);
     }
 
-    //http://lousodrome.net/blog/light/2017/01/03/intersection-of-a-ray-and-a-cone/
+    
     MTS_INLINE std::pair<Mask, Float> intersect_prim(Index prim_index, const Ray3f &ray, Float *cache, Mask active) const {
         ENOKI_MARK_USED(active);
 
@@ -676,16 +687,17 @@ public:
         Point3d v2 = second_vertex_double(prim_index);
 
         double near_t, far_t, t = 0.0;
-        auto coeffs = m_cylinder ? intersect_cylinder(prim_index, ray_o, ray_d) :
-                                   intersect_cone(prim_index, ray_o, ray_d);
+        bool cylinder_intersection = m_cylinder || (!m_cylinder && abs(radius(prim_index) - radius(prim_index + 1)) < 1e-6);
+        auto coeffs = cylinder_intersection ? intersect_cylinder(prim_index, ray_o, ray_d) :
+                                              intersect_cone(prim_index, ray_o, ray_d);
         near_t = std::get<1>(coeffs);
         far_t = std::get<2>(coeffs);
 
         if (!std::get<0>(coeffs))
-            return std::make_pair(false, t);
+            return {false, t};
 
         if (!(near_t <= (double)ray.maxt && far_t >= (double)ray.mint))
-            return std::make_pair(false, t);
+            return {false, t};
 
         Point point_near = ray_o + ray_d * near_t;
         Point point_far = ray_o + ray_d * far_t;
@@ -699,11 +711,11 @@ public:
             t = near_t;
         } else if (dot(point_far - v1, n1) >= 0 && dot(point_far - v2, n2) <= 0) {
             if (far_t > (double)ray.maxt)
-                return std::make_pair(false, (Float)t);
+                return {false, (Float)t};
             p = Point3d(ray_o + ray_d * far_t);
             t = far_t;
         } else { 
-            return std::make_pair(false, (Float)t);
+            return {false, (Float)t};
         }
 
         if (cache) {
@@ -713,7 +725,7 @@ public:
             cache[4] = p.z();
         }
 
-        return std::make_pair(true, (Float)t);
+        return {true, (Float)t};
     }
 
     MTS_INLINE std::pair<Mask, Float> intersect_prim_packet(Index prim_index, const Ray3f &ray,
@@ -729,7 +741,7 @@ public:
         Double near_t, far_t, t = 0.0;
         std::tuple<mask_t<Double>, Double, Double> coeffs;
 
-        bool cylinder_intersection = m_cylinder || (!m_cylinder && abs(radius(prim_index) - radius(prim_index + 1)) < HairEpsilon);
+        bool cylinder_intersection = m_cylinder || (!m_cylinder && abs(radius(prim_index) - radius(prim_index + 1)) < 1e-6);
         coeffs = cylinder_intersection ? intersect_cylinder(prim_index, ray_o, ray_d) :
                                          intersect_cone(prim_index, ray_o, ray_d);
                         
@@ -765,6 +777,11 @@ public:
         masked(t, (active2 && !active)) = far_t;
 
         intersected = intersected && (active1 || active2 && !active);
+
+        active = isnan(p.x()) || isnan(p.y()) || isnan(p.z());
+        if(any(active)){
+            return {false, 0};
+        }
 
         if (cache) {
             cache[1] = prim_index;
@@ -1017,12 +1034,10 @@ public:
                             last_p = p;
                         } else {
                             ScalarVector3f next_tangent = normalize(p - last_p);
-                            /*auto radius_not_conform = !(props.has_property("radius") || props.has_property("base")) &&
-                                                        abs(radius_per_vertex[vertices.size()-1] - radius) < 1e-5f;*/
-                            if (dot(next_tangent, tangent) > dp_thresh /*|| radius_not_conform*/) {
+                            if (dot(next_tangent, tangent) > dp_thresh) {
                                 tangent = normalize(p - vertices[vertices.size()-2]);
                                 vertices[vertices.size()-1] = p;
-                                radius_per_vertex[vertices.size()-1] = radius; //Add enough to pass the condition?
+                                radius_per_vertex[vertices.size()-1] = radius;
                                 ++n_skipped;
                             } else {
                                 vertices.push_back(p);
@@ -1136,7 +1151,7 @@ public:
         si.p += select(active,
                        si.n * (radiuses - sqrt(local.y()*local.y()+local.z()*local.z())),
                        si.n * (radius_at_p - sqrt(local.y()*local.y()+local.z()*local.z())));
-
+        
         si.sh_frame.n = si.n;
         auto uv = coordinate_system(si.sh_frame.n);
         si.dp_du = uv.first;
@@ -1145,20 +1160,10 @@ public:
         si.time = ray.time;
 
         //Compute the offset and store in the UV coordinate for later use by the HairBSDF
-        Frame3f offset_frame = Frame3f(axis);
-        offset_frame.s = normalize(-ray.d - dot(-ray.d, axis) * axis); // Projection of the incident ray to the normal plane
-        offset_frame.t = -cross(frame.n, frame.s); //offset_frame.t should be a direction along the width of the cylinder
-
-        rel_hit_point = si.p - v1;
-        Vector3f center = v1 + axis * dot(rel_hit_point, axis);
-        Vector3f local_hit_point = offset_frame.to_local(si.p - center);
-
-        Float denom = select(active, m_kdtree->radiuses(iv), radius_at_p);
-
-        Float offset = abs(dot(local_hit_point, offset_frame.t) / denom); // should be between 0 and 1
-        clamp(offset, 0, 1); //Clamp the value to 1 because of floating point precision
-
-        si.uv = Point2f(0, offset);
+        Vector3f proj_ray = normalize(-ray.d - dot(-ray.d, axis) * axis); // Projection of the incident ray to the normal plane
+        Float cos_gamma = dot(proj_ray, si.n);
+        Float sin_gamma = sqrt(clamp(1 - sqr(cos_gamma), 0, 1));
+        si.uv = Point2f(0, clamp(sin_gamma, 0, 1)); //Clamp the value to 1 because of floating point precision
     }
 
     ScalarBoundingBox3f bbox() const override{

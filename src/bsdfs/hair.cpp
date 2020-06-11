@@ -84,13 +84,15 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
     Float h = h_xml != -2 ? h_xml : -1 + 2 * si.uv[1];
     Float gamma_o = safe_asin(h);
 
+    //std::cout << "wi: " << si.wi << std::endl;
+
     // Derive four random samples from sample2
     Point2f u[2] = {demux_float(sample2[0]), demux_float(sample2[1])}; //u2
 
     // Determine which term p to sample for hair scattering
     std::array<Float, p_max + 1> ap_pdf = compute_ap_pdf(cos_theta_i, h, si, active);
     /*
-     * The for loop below is a convoluted way to rewrite this code with enoki.
+     * The for loop below is a convoluted way to rewrite the following code with enoki.
      * int p;
      * for (p = 0; p < p_max; ++p) {
      *     if (u[0][0] < ap_pdf[p]) break;
@@ -159,6 +161,7 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
     bs.pdf = pdf;
 
     active &= bs.pdf > 0.0f;
+
     return {bs, select(active, unpolarized<Spectrum>(eval(ctx, si, bs.wo, active) / bs.pdf), 0.f)};
 }
 
@@ -211,9 +214,7 @@ Spectrum HairBSDF<Float, Spectrum>::eval(const BSDFContext &ctx, const SurfaceIn
             ap[p_max] /
             (2.f * Pi);
 
-    active &= abs_cos_theta(wo) > 0;
-
-    return select(active, unpolarized<Spectrum>(fsum / abs_cos_theta(wo)), 0.f);
+    return select(active, unpolarized<Spectrum>(fsum), 0.f);
 }
 
 template <typename Float, typename Spectrum>
