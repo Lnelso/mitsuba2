@@ -84,8 +84,6 @@ std::pair<typename HairBSDF<Float, Spectrum>::BSDFSample3f, Spectrum> HairBSDF<F
     Float h = h_xml != -2 ? h_xml : -1 + 2 * si.uv[1];
     Float gamma_o = safe_asin(h);
 
-    //std::cout << "wi: " << si.wi << std::endl;
-
     // Derive four random samples from sample2
     Point2f u[2] = {demux_float(sample2[0]), demux_float(sample2[1])}; //u2
 

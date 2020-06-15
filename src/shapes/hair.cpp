@@ -643,8 +643,8 @@ public:
         Point3d v1 = first_vertex_double(prim_index);
         Point3d v2 = second_vertex_double(prim_index);
 
-        auto r1 = radius_double(prim_index);
-        auto r2 = radius_double(prim_index+1);
+        Double r1 = radius_double(prim_index);
+        Double r2 = radius_double(prim_index+1);
 
         Vector3d rel_origin = ray_o - v1;
         Vector3d proj_origin = rel_origin - dot(axis, rel_origin) * axis;
@@ -660,19 +660,13 @@ public:
         Point3d cone_top = v1 + (r1 * cos_theta / sin_theta) * axis;
         Vector3d center_origin = ray_o - cone_top;
 
-        /*std::cout << "r1: " << radius_double(prim_index) << std::endl;
-        std::cout << "r2: " << radius_double(prim_index+1) << std::endl;
-        std::cout << "v1: " << v1 << std::endl;
-        std::cout << "v2: " << v2 << std::endl;
-        std::cout << "top: " << cone_top << "\n" << std::endl;*/
-
         Double d_dot_axis = dot(ray_d, axis); 
         Double center_origin_dot_axis = dot(center_origin, axis);
 
         Double A = sqr(d_dot_axis) - square_cos_theta;
         Double B = 2 * (d_dot_axis * center_origin_dot_axis - dot(ray_d, center_origin) * square_cos_theta);
         Double C = sqr(center_origin_dot_axis) - squared_norm(center_origin) * square_cos_theta;
-
+        
         return math::solve_quadratic<Double>(A, B, C);
     }
 

@@ -97,7 +97,6 @@ private:
 
         // Compute attenuation term accounting for remaining orders of scattering
         ap[p_max] = ap[p_max - 1] * f * T / (Spectrum(1.f) - T * f);
-
         return ap;
     }
 
